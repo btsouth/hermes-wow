@@ -82,7 +82,160 @@ def main() -> int:
             hosts_state.CACHE_PATH = originals["hosts_cache"]
 
 
+def _control_and_completion_gates() -> None:
+    from unittest.mock import patch
+    from wowmode import backend
+
+    sid = "20260919_123456_abcdef"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        state = {"dispatched": [], "acked_seq": 0}
+        saved = root / "SavedVariables.lua"
+        data = root / "Data.lua"
+        data.write_text(wowclient.render_data({"sessions": [
+            {"id": sid, "host": "local", "status": "needs", "activity_at": 1789771234.123456}
+        ]}))
+        script = f'''
+          local ns = {{}}
+          assert(loadfile("{ADDON}/Locale.lua"))("HermesAI", ns)
+          assert(loadfile("{ADDON}/Payload.lua"))("HermesAI", ns)
+          assert(loadfile("{ADDON}/Core.lua"))("HermesAI", ns)
+          HermesAIDB = {{}}; HermesAIOutbox = ""
+          assert(loadfile("{data}"))()
+          local payload = ns:ParsePayload(HermesAIData)
+          ns:QueueMarkRead(payload.sessions[1])
+          ns:QueueStop({{id="{sid}", host="local", status="working"}})
+          print('HermesAIOutbox = "' .. HermesAIOutbox .. '"')
+        '''
+        # Use the existing stub harness rather than inventing a second API.
+        script = 'dofile("' + str(ROOT / "tests/wow_stub_api.lua") + '")\n' + script
+        probe = subprocess.run(["lua5.1", "-e", script], capture_output=True, text=True)
+        saved.write_text(probe.stdout)
+        controls = wowclient.read_outbox(saved)
+        check("Lua queues both new controls into the Python outbox", probe.returncode == 0 and
+              [e["kind"] for e in controls] == ["mark_read", "stop"] and
+              controls[0]["text"] == "1789771234.123456", probe.stderr + probe.stdout)
+        # Direct dispatch fixtures also keep Python regressions legible if Lua fails.
+        mark = {"seq": "1", "kind": "mark_read", "host": "local", "session_id": sid, "text": "1234.125"}
+        stop = {**mark, "seq": "2", "kind": "stop", "text": ""}
+        with patch.object(backend, "submit_reply", side_effect=AssertionError("control became reply")), \
+             patch.object(backend, "stop_turn", return_value={"status": "interrupted"}) as interrupt:
+            outcomes = wowclient.dispatch([mark, stop], state=state)
+            check("controls route to suppression and interrupt, never prompt submit",
+                  [x["outcome"] for x in outcomes] == ["marked_read", "stopped"] and interrupt.call_count == 1)
+            wowclient.dispatch([mark, stop], state=state)
+            check("a settled stop is not repeated", interrupt.call_count == 1)
+        rows = [{"id": sid, "host": "local", "activity_at": 1234.125, "status": "needs"},
+                {"id": sid, "host": "remote", "activity_at": 1234.125, "status": "needs"},
+                {"id": sid, "host": "local", "activity_at": 1235, "status": "needs"}]
+        suppressed = wowclient.apply_read_suppressions(rows, state)
+        check("mark read suppresses only the exact host/session/activity", [r["status"] for r in suppressed] == ["idle", "needs", "needs"])
+        check("mark read leaves source roster unchanged", rows[0]["status"] == "needs")
+        published = wowclient.publish(root, {"sessions": rows}, hosts_enabled=False)
+        check("publishing applies persisted mark read suppression", [r["status"] for r in published["rows"]] == ["idle", "needs", "needs"] and published["attention"] == 2)
+        with patch.object(backend, "stop_turn", side_effect=RuntimeError("lost response")) as interrupt:
+            failed_state = {"dispatched": []}
+            failure = wowclient.dispatch([stop], state=failed_state)
+            wowclient.dispatch([stop], state=failed_state)
+            check("uncertain stop is acknowledged once and surfaced as an error", interrupt.call_count == 1 and
+                  failed_state.get("acked_seq") == 2 and "lost response" in failed_state.get("control_error", "") and
+                  failure[0]["outcome"].startswith("stop_failed_or_uncertain"))
+        notice = wowclient.publish(root, {"sessions": []}, hosts_enabled=False)
+        check("control failure is a notice, not a broken roster", not notice["error"] and "lost response" in notice["notice"] and
+              "notice=stop_failed_or_uncertain" in Path(notice["path"]).read_text())
+        with patch.object(backend, "call", side_effect=[{"sessions": [{"session_key": sid, "id": "runtime", "status": "working"}]}, {"status": "interrupted"}]) as rpc:
+            backend.stop_turn(sid, backend={"url": "test"})
+            check("stop resolves live id then uses verified interrupt method", [c.args[0] for c in rpc.call_args_list] == ["session.active_list", "session.interrupt"] and
+                  rpc.call_args_list[1].args[1] == {"session_id": "runtime"})
+        for snapshot in ({"sessions": []}, {"sessions": [{"session_key": sid, "id": "runtime", "status": "idle"}]}):
+            with patch.object(backend, "call", return_value=snapshot) as rpc:
+                try:
+                    backend.stop_turn(sid, backend={"url": "test"})
+                except RuntimeError:
+                    rejected = True
+                else:
+                    rejected = False
+                check("stop refuses missing or idle sessions without resuming", rejected and rpc.call_count == 1)
+
+        with patch.object(backend, "find_backend", return_value=None), patch.object(backend, "call") as rpc:
+            try:
+                backend.stop_turn(sid)
+            except RuntimeError as exc:
+                absent = "no running Hermes backend" in str(exc)
+            else:
+                absent = False
+            check("missing backend gives an explicit stop failure", absent and rpc.call_count == 0)
+        from wowmode import hosts
+        with patch.object(hosts, "reply") as remote_reply, patch.object(backend, "stop_turn") as interrupt:
+            remote_state = {"dispatched": []}
+            outcome = wowclient.dispatch([{**stop, "host": "remote"}], state=remote_state)
+            check("remote stop never falls through to remote reply", not remote_reply.called and not interrupt.called and
+                  "only for a local" in outcome[0]["outcome"])
+
+        with patch.object(backend, "submit_reply") as submit, \
+             patch.object(backend, "stop_turn", return_value={"status": "interrupted"}) as interrupt:
+            for corruption in (b"\xff", "broken json", '{"dispatched": {}}', '{"acked_seq": []}',
+                               '{"pending": {"x": []}}', '{"read_marks": []}'):
+                wowclient._STATE_PATH.write_bytes(corruption if isinstance(corruption, bytes) else corruption.encode())
+                wowclient.publish(root, {"sessions": []}, hosts_enabled=False)
+                wowclient.acked_seq()
+                wowclient.dispatch([mark, stop])
+                wowclient.dispatch([mark, stop])
+                check("publish cannot consume ledger corruption quarantine", submit.call_count == 0 and interrupt.call_count == 0 and
+                      wowclient._load_state().get("acked_seq") == 2 and
+                      "ledger was unreadable" in wowclient._load_state().get("control_error", ""))
+        wowclient._save_state({"dispatched": [], "acked_seq": 0})
+
+        from wowmode import notify
+        with patch.object(wowclient, "board", return_value={"sessions": []}), \
+             patch.object(notify, "transitions", side_effect=OSError("ledger disk full")), \
+             patch.object(wowclient, "savedvars_path", return_value=saved), \
+             patch.object(wowclient, "dispatch", return_value=[]) as deliver:
+            report = wowclient.watch(addon_dir=root, once=True, hosts_enabled=False)
+            check("notification ledger failure does not stop inbox dispatch", report[0].get("notify_error") == "ledger disk full" and deliver.call_count == 1)
+
+        # A crash after the durable stop journal but before the ack must not
+        # leave the control pending forever merely because it is already seen.
+        wowclient._save_state({"dispatched": [wowclient._entry_key(e) for e in controls], "acked_seq": 0})
+        with patch.object(wowclient, "board", return_value={"sessions": []}), \
+             patch.object(wowclient, "savedvars_path", return_value=saved), \
+             patch.object(backend, "stop_turn") as interrupt:
+            wowclient.watch(addon_dir=root, once=True, hosts_enabled=False, notify_enabled=False)
+        check("watcher acknowledges previously journaled controls without repeating them", interrupt.call_count == 0 and
+              wowclient._load_state()["acked_seq"] == max(int(e["seq"]) for e in controls))
+
+        # Exercise the detached supervisor with a real delayed process. No Hermes
+        # process is started; the shell fixture only exits after the grace window.
+        executable = root / "fake-hermes"
+        executable.write_text("#!/bin/sh\nsleep 0.15\nexit 7\n")
+        executable.chmod(0o755)
+        with patch.object(backend, "_hermes_bin", return_value=str(executable)):
+            verdict = backend.submit_reply_cli(sid, "hello", log_dir=root, grace=0)
+        with patch.object(backend, "_hermes_bin", return_value=str(executable)), \
+             patch.object(backend, "cli_exit", return_value=None):
+            no_record = backend.submit_reply_cli(sid, "hello", log_dir=root, grace=0.3)
+        check("supervisor exit alone cannot prove CLI delivery", no_record["ok"] is None and no_record["exit"] is None)
+        deadline = time.monotonic() + 5
+        while backend.cli_exit(verdict["completion_path"]) is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        entry = {**mark, "kind": "reply", "text": "hello"}
+        key = wowclient._entry_key(entry)
+        item = {**entry, "pid": verdict["pid"], "exit": None, "log": str(verdict["log_path"]), "completion": str(verdict["completion_path"])}
+        pending = {"pending": {key: item}}
+        delivered, refused = wowclient._reconcile_pending(pending)
+        check("late nonzero CLI exit is never acknowledged as delivered", backend.cli_exit(verdict["completion_path"]) == 7 and not delivered and len(refused) == 1)
+        Path(verdict["completion_path"]).write_text('{"exit": 0}')
+        delivered, refused = wowclient._reconcile_pending({"pending": {key: item}})
+        check("recorded zero CLI exit settles successfully", delivered == [key] and refused == [])
+        Path(verdict["completion_path"]).unlink()
+        uncertain = {"pending": {key: item}}
+        with patch.object(wowclient, "_pid_running", return_value=False):
+            delivered, refused = wowclient._reconcile_pending(uncertain)
+        check("missing completion remains uncertain and blocks duplicate launch", not delivered and key in uncertain["pending"] and refused[0]["outcome"].startswith("uncertain"))
+
+
 def _run() -> int:
+    _control_and_completion_gates()
     payload = {
         "generated_at": 1789771234,
         "attention": 2,
@@ -173,7 +326,7 @@ def _run() -> int:
 
         # The header carries the schema and the new-since-last-sync list.
         header = Path(result["path"]).read_text(encoding="utf-8").splitlines()[-1]
-        check("payload declares the schema", "schema=2" in header, header[:80])
+        check("payload declares the schema", "schema=3" in header, header[:80])
         check("payload carries a host map", "hosts=" in header, header[:80])
         check("payload carries the dispatch high-water mark", "acked=" in header, header[:80])
         check("payload names the bridge version", f"bridge={wowclient.BRIDGE_VERSION}" in header, header[:80])
@@ -204,7 +357,7 @@ def _run() -> int:
         # write), must read as "no data", never as an exception and never as a
         # half-populated board.
         for name, body in (("garbage", "HermesAIData = \"not a payload\"\n"),
-                           ("short", 'HermesAIData = "HE1|bridge=0.4|schema=2|generated=1|rows=2|new=;;2026|needs|1|local|default|p|orphan row||1|"')):
+                           ("short", 'HermesAIData = "HE1|bridge=0.4|schema=3|generated=1|rows=2|new=;;2026|needs|1|local|default|p|orphan row||1|"')):
             path = addon_dir / f"{name}.lua"
             path.write_text(body, encoding="utf-8")
             probe = parse_payload_with_addon(path)

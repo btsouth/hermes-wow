@@ -39,7 +39,7 @@ def check(label: str, condition: bool, detail: str = "") -> None:
         failures.append(label)
 
 
-HEADER = "HE1|bridge=0.4.0|schema=2|generated=1789771234|rows={rows}|acked=0|hosts=local:ok|new="
+HEADER = "HE1|bridge=0.4.0|schema=3|generated=1789771234|rows={rows}|acked=0|hosts=local:ok|new="
 GOOD_ROW = "20260918_182123_e733d6|needs|30|local|default|Projects|a title||12|0.4200|0|a preview"
 
 
@@ -85,8 +85,8 @@ PAYLOADS: list[tuple[str, str, str]] = [
      payload(1, GOOD_ROW, header=HEADER.format(rows=1).replace("hosts=local:ok", "hosts=a;;b")), "accept"),
     ("no host map at all", payload(1, GOOD_ROW, header=HEADER.format(rows=1).replace("|hosts=local:ok", "")),
      "accept"),
-    ("a schema from the future", payload(1, GOOD_ROW).replace("schema=2", "schema=99"), "incompatible"),
-    ("a schema from the past", payload(1, GOOD_ROW).replace("schema=2", "schema=1"), "incompatible"),
+    ("a schema from the future", payload(1, GOOD_ROW).replace("schema=3", "schema=99"), "incompatible"),
+    ("a schema from the past", payload(1, GOOD_ROW).replace("schema=3", "schema=1"), "incompatible"),
     ("a payload of forty rows", payload(40, *([GOOD_ROW] * 40)), "accept"),
 ]
 

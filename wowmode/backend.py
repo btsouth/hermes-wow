@@ -18,7 +18,9 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
+import uuid
 from pathlib import Path
 
 from .roster import hermes_home
@@ -181,6 +183,49 @@ def submit_reply(session_id: str, text: str, *, backend: dict[str, object] | Non
     return call("prompt.submit", {"session_id": runtime_id, "text": text}, backend=backend)
 
 
+def stop_turn(session_id: str, *, backend: dict[str, object] | None = None):
+    """Interrupt only an already attached turn; resuming could start new work."""
+    backend = backend or find_backend()
+    if backend is None:
+        raise RuntimeError("no running Hermes backend (desktop app not open?)")
+    snapshot = call("session.active_list", {}, backend=backend) or {}
+    matches = [row for row in snapshot.get("sessions", []) or []
+               if str(row.get("session_key") or "") == session_id]
+    if len(matches) != 1 or not matches[0].get("id"):
+        raise RuntimeError("session is not uniquely active in this backend")
+    if matches[0].get("status") not in ("working", "waiting", "starting"):
+        raise RuntimeError("session has no running turn")
+    result = call("session.interrupt", {"session_id": matches[0]["id"]}, backend=backend)
+    if not isinstance(result, dict) or result.get("status") != "interrupted":
+        raise RuntimeError("backend did not confirm interruption")
+    return result
+
+
+# A separate supervisor survives the watcher exiting and records the real CLI
+# status. A vanished PID alone says nothing about whether a reply succeeded.
+_CLI_SUPERVISOR = """
+import json, os, subprocess, sys
+path, *command = sys.argv[1:]
+try:
+    code = subprocess.call(command, stdin=subprocess.DEVNULL)
+except Exception:
+    code = 127
+with open(path + '.tmp', 'w') as handle:
+    json.dump({'exit': code}, handle)
+os.replace(path + '.tmp', path)
+sys.exit(code if code >= 0 else 128 - code)
+"""
+
+
+def cli_exit(path: str | Path) -> int | None:
+    try:
+        result = json.loads(Path(path).read_text())
+        code = result.get("exit")
+        return code if isinstance(code, int) and not isinstance(code, bool) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def _hermes_bin() -> str:
     candidate = Path.home() / ".local" / "bin" / "hermes"
     return str(candidate) if candidate.exists() else "hermes"
@@ -228,12 +273,14 @@ def submit_reply_cli(
     # The id is a path segment here and it comes from a file a player can edit:
     # keep it to characters that cannot walk out of the log directory.
     safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)[:80] or "session"
-    log_path = log_dir / f"hermes-wow-reply-{safe_id}.log"
+    log_path = log_dir / f"hermes-wow-reply-{safe_id}-{uuid.uuid4().hex}.log"
+    completion_path = log_path.with_suffix(".exit.json")
 
     with open(log_path, "ab", buffering=0) as handle:
         handle.write(f"\n--- {session_id} @ {os.path.getmtime(__file__):.0f}\n".encode())
         child = subprocess.Popen(
-            [_hermes_bin(), "chat", "-Q", "--resume", session_id, "--oneshot", "-q", text],
+            [sys.executable, "-c", _CLI_SUPERVISOR, str(completion_path),
+             _hermes_bin(), "chat", "-Q", "--resume", session_id, "--oneshot", "-q", text],
             stdout=handle,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
@@ -249,11 +296,12 @@ def submit_reply_cli(
         time.sleep(0.1)
 
     reason = refusal_reason(log_path)
-    exit_code = child.poll()
+    exit_code = cli_exit(completion_path)
     if exit_code is not None and (exit_code != 0 or reason):
         return {
             "ok": False,
             "log_path": log_path,
+            "completion_path": completion_path,
             "pid": child.pid,
             "exit": exit_code,
             "reason": reason or f"exited {exit_code}",
@@ -262,6 +310,7 @@ def submit_reply_cli(
     return {
         "ok": True if exit_code is not None else None,
         "log_path": log_path,
+        "completion_path": completion_path,
         "pid": child.pid,
         "exit": exit_code,
         "reason": reason,
