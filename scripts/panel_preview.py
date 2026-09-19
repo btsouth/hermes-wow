@@ -273,7 +273,7 @@ def render_detail(session: dict | None) -> str:
 
 
 def render_first_run() -> str:
-    return '<div class="first-run"><strong>Your agents, in Azeroth</strong><p>See what needs you and reply from the game.</p><code>hermes-wow wow publish</code><p>Run this command on your computer, then press Sync.</p></div>'
+    return '<div class="first-run"><strong>Your agents, in Azeroth</strong><p>See what needs you and reply from the game.</p><code>github.com/btsouth/hermes-wow</code><p>Already installed? Run hermes-wow setup</p><p>Finish setup on your computer, then press Sync.</p></div>'
 
 
 def render_toast(session: dict | None) -> str:
@@ -307,8 +307,17 @@ def render_panel(data: dict, *, mode: str) -> str:
     attention = counts.get("needs", 0) + counts.get("error", 0)
     # The roster reports when it was generated; there is no separate age field,
     # and reading one that never exists made every render say "just now".
-    generated_at = float(data.get("generated_at") or time.time())
+    generated_at = time.time() - 901 if mode == "old-snapshot" else float(data.get("generated_at") or time.time())
     age = "never synced" if mode == "first-run" else age_phrase(max(0.0, time.time() - generated_at))
+
+    headline = "no snapshot" if mode == "first-run" else None
+    notice = "No snapshot: run hermes-wow setup on your computer." if mode == "first-run" else None
+    if mode == "old-snapshot" or (mode != "first-run" and time.time() - generated_at > 900):
+        headline = "snapshot is old"
+        notice = "Snapshot older than 15m: Sync. Still old? hermes-wow setup"
+    if mode == "incompatible":
+        headline = "bridge version mismatch"
+        notice = "payload v99 / addon v3: run hermes-wow update, then Sync"
 
     tabs = []
     for key, label, bucket in TABS:
@@ -340,15 +349,15 @@ def render_panel(data: dict, *, mode: str) -> str:
       <div class="header">
         <span class="crest">H</span>
         <span class="name">Hermes Agents</span>
-        <span class="badge">{'no snapshot' if mode == 'first-run' else (('1 needs you' if attention == 1 else str(attention) + ' need you') if attention else 'all clear')}</span>
-        <span class="synced">{'+' + str(data.get('new_count', 0)) + ' new, ' if data.get('new_count') else ''}synced {age}</span>
+        <span class="badge" style="color:{COLORS['error'] if headline else COLORS['needs' if attention else 'reply']}">{headline or (('1 needs you' if attention == 1 else str(attention) + ' need you') if attention else 'all clear')}</span>
+        <span class="synced">{'+' + str(data.get('new_count', 0)) + ' new, ' if data.get('new_count') else ''}{age if mode == 'first-run' else 'synced ' + age}</span>
         <span class="button sync">Sync</span><span class="button tiny">*</span><span class="button tiny">-</span><span class="button tiny">X</span>
       </div>
       <div class="search">Search agents, threads, or projects...<span class="caret"></span></div>
       <div class="tabs">{''.join(tabs)}</div>
 {body}
       <div class="footer">
-        <span class="legend">{'no snapshot: run hermes-wow wow publish, then sync' if mode == 'first-run' else ('host offline: ' + ', '.join(offline_hosts) if offline_hosts else 'needs you / new reply / working / waiting / finished')}</span>
+        <span class="legend">{notice or ('host offline: ' + ', '.join(offline_hosts) if offline_hosts else 'needs you / new reply / working / waiting / finished')}</span>
         <span style="margin-left:auto">{trailer}</span>
       </div>
     </div>"""
@@ -581,7 +590,7 @@ def main() -> int:
     parser.add_argument("--demo", action="store_true",
                         help="the built-in made-up roster, for pictures that should not "
                              "contain anyone's real work")
-    parser.add_argument("--only", choices=("board", "detail", "first-run", "toast", "working"),
+    parser.add_argument("--only", choices=("board", "detail", "first-run", "toast", "working", "old-snapshot", "incompatible"),
                         help="one bare panel on a transparent page, for rasterising")
     args = parser.parse_args()
 

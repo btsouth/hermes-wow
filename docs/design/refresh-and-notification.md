@@ -91,8 +91,9 @@ Because the snapshot can be minutes old, the UI has to say so, permanently:
   sound. A clickable toast shows new attention and completed work at sync,
   seeds first-run history silently, and rate-limits repeated session/kind
   transitions. Sound and Sync toasts have separate settings
-- if the bridge has stopped writing (no fresh data for 15 minutes), the board
-  says `bridge offline` instead of showing an old count as if it were current
+- if the loaded snapshot is older than 15 minutes, the board says
+  `snapshot is old` and asks the player to Sync, then run setup if it stays old.
+  The addon cannot tell a stopped bridge from time spent playing without a sync
 - if the file is corrupt or from an incompatible bridge version, the addon falls
   back to the last good snapshot in SavedVariables and labels it as such
 
@@ -134,3 +135,11 @@ conventions as the reply outbox. Why a string instead of a Lua table:
 loading or you ask for it, and a phone or desktop alert the moment something
 needs you." Not "live in game". The sandbox does not allow that, and an addon
 that pretends otherwise would be lying in the first comment thread.
+
+## Background bridge lifecycle
+
+Guided setup installs the addon and enables `hermes-wow.service` in the Linux
+user session. It starts at login and requires no open terminal. Setup records
+the selected game and Hermes paths; update reuses them and restarts the service.
+The service changes no WoW restriction: files still load only at login or Sync.
+Uninstall disables the background bridge while preserving game and Hermes data.

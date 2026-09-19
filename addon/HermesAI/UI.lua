@@ -1010,8 +1010,9 @@ function ns:BuildPanel()
   firstRun:SetSize(PANEL_WIDTH - 80, 160)
   firstRun.lines = {}
   for index, text in ipairs({ L["Your agents, in Azeroth"],
-      L["See what needs you and reply from the game."], L["hermes-wow wow publish"],
-      L["Run this command on your computer, then press Sync."] }) do
+      L["See what needs you and reply from the game."], L["github.com/btsouth/hermes-wow"],
+      L["Already installed? Run hermes-wow setup"],
+      L["Finish setup on your computer, then press Sync."] }) do
     local line = colorize(fontString(firstRun, "OVERLAY", index == 1 and FONT_TITLE or FONT_BODY), TEXT)
     line:SetPoint("TOPLEFT", 0, -(index - 1) * 32)
     line.fullText = text
@@ -1028,22 +1029,26 @@ end
 --- Empty and degraded states, which must never read as "your agents are idle".
 function ns:PanelStatusLine()
   if self:IsMissing() then
-    return L["no snapshot: run hermes-wow wow publish, then sync"]
+    return L["No snapshot: run hermes-wow setup on your computer."]
   end
   if self.loaded and self.loaded.incompatible then
-    return ns.Lf("bridge speaks payload v%d, this addon speaks v%d: update whichever is older",
+    return ns.Lf("payload v%d / addon v%d: run hermes-wow update, then Sync",
       tonumber(self.loaded.schema) or 0, self.PAYLOAD_SCHEMA)
   end
   if self:IsStale() then
-    return ns.Lf("bridge payload unusable: showing the last good snapshot, synced %s",
+    return ns.Lf("Last good snapshot (%s). Run hermes-wow setup, then Sync.",
       self:AgeLabel(self:SnapshotAge()))
   end
   local bridgeError = self:BridgeError()
   if bridgeError ~= "" then
-    return ns.Lf("bridge cannot read the session store: %s", bridgeError)
+    return ns.Lf("Run hermes-wow setup: bridge cannot read the store (%s)", bridgeError)
   end
   local notice = self:Data().notice
   if notice and notice ~= "" then return notice end
+  local age = self:SnapshotAge()
+  if age and age > 900 then
+    return L["Snapshot older than 15m: Sync. Still old? hermes-wow setup"]
+  end
   return nil
 end
 

@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: HermesAI
 ## Author: btsouth
-## Version: 0.6.0
+## Version: 0.7.0
 ## Notes: Your Hermes agent sessions in game: what needs you, and a place to answer it. Requires the Hermes bridge.
 ## IconTexture: Interface\AddOns\HermesAI\icon
 ## SavedVariables: HermesAIOutbox, HermesAIDB, HermesAILastGood, HermesAILastGoodAt, HermesAISync

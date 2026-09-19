@@ -1320,7 +1320,7 @@ ns:SetSearch("")
 ns:ShowBoard()
 ns:RefreshPanel()
 check("the footer is carrying both a notice and a full trailer",
-  ns.Board.legend.text:find("session store", 1, true) ~= nil
+  ns.Board.legend.text:find("hermes-wow setup", 1, true) ~= nil
     and ns.Board.hosts.text:find("offline", 1, true) ~= nil,
   ns.Board.legend.text .. " | " .. ns.Board.hosts.text)
 check("...and the two ends still fit the panel together",
@@ -1605,7 +1605,8 @@ ns.snapshot.sessions = {}
 ns:SetSearch("")
 ns:RefreshPanel()
 check("first-run card replaces the empty label", ns.Board.firstRun:IsShown() and not ns.Board.empty:IsShown())
-check("first-run card carries the setup command", ns.Board.firstRun.lines[3].text == "hermes-wow wow publish")
+check("first-run card carries the setup command", ns.Board.firstRun.lines[3].text == "github.com/btsouth/hermes-wow"
+  and ns.Board.firstRun.lines[4].text == "Already installed? Run hermes-wow setup")
 check("first-run header says never synced once", ns.Board.synced.text == "never synced")
 ns:ShowBoard()
 _G.__char_width = 20
@@ -1617,6 +1618,18 @@ fire("UI_SCALE_CHANGED")
 ns.loaded.missing = false
 ns:RefreshPanel()
 check("published empty roster hides onboarding", not ns.Board.firstRun:IsShown() and ns.Board.empty:IsShown())
+-- Age is evidence of an old snapshot, not proof the background service is down.
+local savedGenerated, savedNotice = ns.snapshot.generated, ns.snapshot.notice
+ns.snapshot.notice = nil
+ns.snapshot.generated = time() - 901
+check("old snapshot gives recovery without claiming offline", ns:Headline() == "snapshot is old"
+  and ns:PanelStatusLine():find("Still old? hermes-wow setup", 1, true) ~= nil)
+ns.snapshot.generated = time()
+check("fresh snapshot clears age recovery", ns:Headline() == nil)
+ns.loaded.incompatible, ns.loaded.schema = true, 99
+check("incompatible snapshot gives updater recovery", ns:PanelStatusLine():find("hermes-wow update", 1, true) ~= nil)
+ns.loaded.incompatible = false
+ns.snapshot.generated, ns.snapshot.notice = savedGenerated, savedNotice
 local reloadBefore = _G.__reloads or 0
 _G.__inCombat = true
 ns.Board.sync:Fire("OnClick")

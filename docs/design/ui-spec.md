@@ -102,7 +102,8 @@ Rules that keep this from becoming a liability:
 - **`+N new`** after a sync that brought new attention items, so a refresh
   announces what changed instead of silently redrawing.
 - **A first-run card** when the bridge has never run: what Hermes is, the one
-  command `hermes-wow wow publish`, and the instruction to sync afterwards. A blank board is a bad first
+  project URL, `hermes-wow setup` for an existing installation, and the instruction
+  to finish setup on the computer and sync afterwards. A blank board is a bad first
   impression and a worse support thread.
 - **Stale and incompatible states** rendered as such, never as an empty list.
 
@@ -233,3 +234,13 @@ against other minimap addons (several hook the same ring), and whether the badge
 
 Chat session ids are links scoped to the addon prefix; clicking one selects its
 host and session without replacing the client hyperlink handler.
+
+## Guided setup and recovery
+
+The first-run card names the project page, `hermes-wow setup` for an existing
+installation, and Sync after computer-side setup. The addon cannot install or
+start a bridge from inside WoW. A snapshot older than 15 minutes says
+`Snapshot is old`; Sync is the first recovery step, followed by setup if the
+snapshot remains old. This is not proof that the background service is offline.
+An incompatible payload points to `hermes-wow update`; an unreadable snapshot
+or session store points to setup while preserving the last known rows.

@@ -9,7 +9,7 @@
 local addonName, ns = ...
 
 ns.ADDON = addonName
-ns.VERSION = "0.6.0"
+ns.VERSION = "0.7.0"
 
 local L = ns.L
 
@@ -179,6 +179,8 @@ function ns:Headline()
   if self.loaded and self.loaded.snapshot and self.loaded.snapshot.error ~= "" then
     return L["Hermes is not answering"]
   end
+  local age = self:SnapshotAge()
+  if age and age > 900 then return L["snapshot is old"] end
   return nil
 end
 
@@ -688,13 +690,13 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
 
     if loaded.incompatible then
       ns:Print(ns.Lf(
-        "bridge speaks payload v%d, this addon speaks v%d: update whichever is older.",
+        "bridge speaks payload v%d, this addon speaks v%d: run hermes-wow update, then Sync.",
         tonumber(loaded.schema) or 0, ns.PAYLOAD_SCHEMA))
       return
     end
 
     if loaded.missing then
-      ns:Print(L["no snapshot yet: run hermes-wow wow publish on this machine, then sync."])
+      ns:Print(L["No snapshot yet. Install from github.com/btsouth/hermes-wow, or run hermes-wow setup if installed. Then Sync."])
       return
     end
 

@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 addon and the bridge version independently and the payload is versioned by
 `schema`.
 
+## [0.7.0] - unreleased
+
+### Added
+
+- Guided Linux setup installs the addon and starts the bridge automatically at
+  login. It checks Hermes, the game location and the first snapshot before
+  reporting success.
+- Managed update and uninstall commands preserve personal settings and session
+  data.
+- First-run guidance explains setup and recovery without requiring a manually
+  running watcher.
+
 ## [0.6.0] - 2026-09-19
 
 ### Added
