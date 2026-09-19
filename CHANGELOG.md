@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 addon and the bridge version independently and the payload is versioned by
 `schema`.
 
-## [0.7.0] - unreleased
+## [0.7.0] - 2026-09-19
 
 ### Added
 

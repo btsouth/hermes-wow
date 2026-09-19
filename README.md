@@ -99,7 +99,7 @@ if you also want it gone.
 
 ```bash
 hermes-wow setup                     # repair or finish setup
-hermes-wow wow status                # show the selected game client
+hermes-wow status                    # check automatic startup and snapshot health
 hermes-wow doctor                    # check Hermes and bridge dependencies
 systemctl --user status hermes-wow.service
 journalctl --user -u hermes-wow.service -n 40 --no-pager
