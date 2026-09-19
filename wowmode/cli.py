@@ -263,6 +263,7 @@ def cmd_wow(args: argparse.Namespace) -> int:
     if args.wow_command == "watch":
         reports = wowclient.watch(
             addon_dir=addon_dir,
+            health_file=Path(args.health_file) if args.health_file else None,
             interval=args.interval,
             channel=args.channel,
             once=args.once,
@@ -274,6 +275,12 @@ def cmd_wow(args: argparse.Namespace) -> int:
             days=args.days,
             hosts_enabled=not args.no_hosts,
         )
+        if args.quiet:
+            errors = [report.get("error") or report.get("publish_error") for report in reports]
+            for error in errors:
+                if error:
+                    print(error, file=sys.stderr)
+            return 1 if any(errors) else 0
         for report in reports:
             if report.get("error"):
                 print(report["error"], file=sys.stderr)
@@ -379,6 +386,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="hermes-wow", description="Hermes in Azeroth: triage agents over a game.")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    from . import setup
+    for action in ('setup', 'uninstall'):
+        lifecycle = sub.add_parser(action, help='configure automatic startup' if action == 'setup' else 'remove automatic startup, preserve data')
+        lifecycle.add_argument('--addon-dir')
+        lifecycle.add_argument('--hermes-home')
+        lifecycle.add_argument('--yes', action='store_true')
+        lifecycle.add_argument('--force', action='store_true')
+        lifecycle.add_argument('--no-start', action='store_true', help=argparse.SUPPRESS)
+        lifecycle.set_defaults(func=setup.command)
+    status = sub.add_parser('status', help='show installation and background bridge health')
+    status.set_defaults(func=lambda args: setup.status())
+    update = sub.add_parser('update', help='update a managed installation')
+    update.set_defaults(func=lambda args: __import__('wowmode.updater', fromlist=['command']).command(args))
+
     board = sub.add_parser("board", help="print the agent triage board")
     board.add_argument("--json", action="store_true", help="machine-readable roster (used by the overlay)")
     board.add_argument("--compact", action="store_true", help="single-line JSON")
@@ -412,6 +433,8 @@ def build_parser() -> argparse.ArgumentParser:
     wow = sub.add_parser("wow", help="the in-game side: install the addon, publish, take replies")
     wow.add_argument("wow_command", choices=["status", "install", "publish", "inbox", "watch", "notify", "hosts"])
     wow.add_argument("--addon-dir", default=None, help="Interface/AddOns of the client (auto-detected)")
+    wow.add_argument("--health-file", help=argparse.SUPPRESS)
+    wow.add_argument("--quiet", action="store_true", help="watch: suppress reports in service logs")
     wow.add_argument("--force", action="store_true", help="install: overwrite an existing copy")
     wow.add_argument("--dispatch", action="store_true", help="inbox: send the queued replies")
     wow.add_argument("--channel", choices=["auto", "backend", "cli"], default="auto")

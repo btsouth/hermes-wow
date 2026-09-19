@@ -51,7 +51,7 @@ SESSION_ID_RE = re.compile(r"[A-Za-z0-9_.-]{8,}")
 # know, so both sides can be updated independently without silent nonsense.
 PAYLOAD_TAG = "HE1"
 PAYLOAD_SCHEMA = 3
-BRIDGE_VERSION = "0.6.0"
+BRIDGE_VERSION = "0.7.0"
 
 _INSTALL_HINTS = (
     "/mnt/data/Games/World of Warcraft",
@@ -952,7 +952,7 @@ def inbox(*, addon_dir: Path | None = None, dispatch_replies: bool = False, chan
     return result
 
 
-def watch(
+def _watch(
     *,
     addon_dir: Path | None = None,
     interval: float = 10.0,
@@ -966,6 +966,7 @@ def watch(
     days: float = 3.0,
     hosts_enabled: bool = True,
     host_refresh_interval: float = 60.0,
+    health_file: Path | None = None,
 ) -> list[dict]:
     """Publish status out, dispatch replies in, ring the bell, forever (or N rounds)."""
     directory = addon_dir or pick_addon_dir()
@@ -1023,6 +1024,16 @@ def watch(
         except Exception as exc:  # noqa: BLE001
             report["publish_error"] = str(exc)
 
+        if health_file is not None:
+            problems = []
+            if report.get('publish_error'):
+                problems.append('publish_error')
+            if data.get('error'):
+                problems.append('session_store_error')
+            state_module.atomic_write(Path(health_file), json.dumps({
+                'at': time.time(), 'ok': not problems, 'problems': problems,
+            }) + '\n')
+
         if notify_enabled:
             # Notify from what was PUBLISHED, which includes the merged remote
             # rows: a needs-you on another machine used to be silent.
@@ -1048,6 +1059,14 @@ def watch(
                     report["dispatch_error"] = str(exc)
             report["outbox"] = len(entries)
 
+        if health_file is not None:
+            problems = [name for name in ('publish_error', 'dispatch_error') if report.get(name)]
+            if data.get('error'):
+                problems.append('session_store_error')
+            state_module.atomic_write(Path(health_file), json.dumps({
+                'at': time.time(), 'ok': not problems, 'problems': problems,
+            }) + '\n')
+
         if once or iterations is not None:
             reports.append(report)
         else:
@@ -1063,3 +1082,19 @@ def watch(
 
     stop_refresher.set()
     return reports
+
+
+def watch(**kwargs) -> list[dict]:
+    """One dispatcher owns the ledger while its watcher is alive.
+
+    Automatic login startup must not race a manually launched watcher and send
+    the same queued action twice. The kernel releases this lock after a crash.
+    """
+    import fcntl
+    _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _STATE_PATH.with_name("watch.lock").open("a+") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return [{"error": "The Hermes WoW bridge is already running. Use hermes-wow status to check it."}]
+        return _watch(**kwargs)
