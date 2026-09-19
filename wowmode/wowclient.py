@@ -529,7 +529,9 @@ def read_outbox(path: Path) -> list[dict[str, str]]:
             continue
         # A seq that is not a number cannot be acked or deduped, and int() on it
         # used to raise out of the watcher loop.
-        if not seq.isdigit():
+        # isdigit accepts superscripts which int rejects; enormous decimal
+        # strings also exceed Python's conversion limit before ack calculation.
+        if not re.fullmatch(r"[0-9]{1,20}", seq):
             continue
 
         entries.append(

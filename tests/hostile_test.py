@@ -171,6 +171,8 @@ SAVEDVARS: list[tuple[str, str, str]] = [
      'HermesAIOutbox = "8|reply|local|20260918_180002_bbbbbb|second"', "first"),
     ("a sync stamp that is not a number", 'HermesAISync = "soon"', "stamp-none"),
     ("a sync stamp that is a number", "HermesAISync = 1789771200", "stamp-ok"),
+    ("superscript sequence is not an integer", 'HermesAIOutbox = "²|reply|local|session-1|text"', "empty"),
+    ("unbounded sequence cannot reach integer conversion", 'HermesAIOutbox = "' + '9' * 5000 + '|reply|local|session-1|text"', "empty"),
     ("nothing at all", "local x = 1", "empty"),
 ]
 
