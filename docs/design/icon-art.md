@@ -24,6 +24,26 @@ Gold on deep navy is the identity: that pairing is already on screen in the
 crest, the badge and the minimap button. Blue is an accent, not a second theme —
 use it for at most one rim light.
 
+## How to use these
+
+**Attach the emblem you settled on to every later prompt.** A model that has not
+seen it will invent a different H, and a set that does not share one letterform
+stops looking like a family. Say "recompose the attached icon as …" and keep the
+palette table for the colours.
+
+**Check the result at 32 px before accepting it.** Downscale to 32, then zoom it
+back up with nearest-neighbour so the pixels are visible:
+
+```bash
+magick emblem.png -resize 32x32 -filter point -resize 256x256 check.png
+```
+
+The first pass of this emblem looked right at 64 and turned its wings into a jagged
+blob glued to the H's stem at 32. The failure mode is always the same: fine detail
+that reads at preview size and becomes noise at the size the client actually draws.
+The fix is never "make it smaller" — it is negative space around the detail, or
+removing it. One clear shape beats two that blur together.
+
 ## 1. The emblem — the one that matters
 
 **Prompt (copy this whole block):**
@@ -53,13 +73,17 @@ lettering, which is the fastest way to make a release look amateurish.
 
 ## 2. The project avatar — 1024×1024, opaque
 
-Same emblem, re-composed for a store page. **Prompt:**
+**Attach the emblem**, then:
 
-> Take the emblem described above and render it 1024 by 1024, fully opaque, on a
-> deep navy `#0D1220` background with a very subtle radial lift in the centre
-> (about 6% lighter) so the plate does not read as a flat black square. The emblem
-> sits centred with even padding of roughly 12% on every side. Same gold palette,
-> same flat vector style, same bevel. No text, no watermark, no border.
+> Recompose the attached icon as a 1024 by 1024 square, fully opaque, on a deep
+> navy `#0D1220` background with a very subtle radial lift in the centre (about 6%
+> lighter) so it does not read as a flat black square. Keep the same letterform,
+> same gold palette, same bevel, same blue rim light — do not redraw the H, only
+> re-frame it. The emblem sits centred with even padding of roughly 12% on every
+> side. No text, no watermark, no border.
+
+(If you are starting cold, describe it from prompt 1 instead — but expect a
+different H.)
 
 ## 3. The social preview banner — 1280×640, no text
 
@@ -74,9 +98,18 @@ GitHub's repo social preview and most store headers. **Prompt:**
 > numbers. Flat vector style, crisp edges, no gradients that band, no text
 > anywhere, no watermark.
 
+**Attach the emblem** to this one too, and keep the right two thirds empty.
+
+**Better than the abstract bars: a real screenshot.** The panel renderer and the
+game itself both produce honest images, and a banner built from one plus the
+emblem and a real wordmark looks like a product rather than a generated graphic.
+Take a screenshot of the board in game, hand it over with the emblem, and the two
+can be composited — the panel is a dark rectangle with a border, so it drops into
+the right two thirds cleanly. Ask for the negative space either way.
+
 **Leave the wordmark to a real font.** Image models garble lettering, and a
 misspelled banner is worse than a textless one. Add `HermesAI` afterwards — the
-`make icon` step below composites it in `#E8EDF7` using a system font, so the
+`make banner` step below composites it in `#E8EDF7` using a system font, so the
 letters are actually letters.
 
 ## 4. Optional: a custom minimap disc — 64×64, transparent
