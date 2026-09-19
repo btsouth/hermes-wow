@@ -5,6 +5,9 @@ out-of-game half that feeds it.
 
 ![HermesAI board with fictional sessions](docs/art/store-banner.png)
 
+[Download 0.6.0 preview](https://github.com/btsouth/hermes-wow/releases/tag/v0.6.0)
+· [Validation and in-game checklist](docs/validation-0.6.0.md)
+
 See which agents need you, reply, mark messages read, or request a running turn
 to stop without leaving the game. Status updates arrive when you sync.
 

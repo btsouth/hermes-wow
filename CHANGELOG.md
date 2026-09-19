@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 addon and the bridge version independently and the payload is versioned by
 `schema`.
 
-## [0.6.0] - unreleased
+## [0.6.0] - 2026-09-19
 
 ### Added
 
@@ -37,6 +37,7 @@ addon and the bridge version independently and the payload is versioned by
   above the action row, and new controls follow skin and text-size changes.
 - Preview colors, status words, empty states, timestamps, tab counts and detail
   geometry now match the addon. The public banner uses fictional sessions.
+- Malformed outbox sequence numbers are rejected before acknowledgement parsing.
 - Release automation runs every offline gate. Packaging explicitly verifies both
   icons, single-loaded bindings, and rejection of unreleased versions.
 
