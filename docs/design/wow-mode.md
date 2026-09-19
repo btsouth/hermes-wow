@@ -47,23 +47,9 @@ the only live option, not a lazy one.
 
 ## The name
 
-Settled by checking rather than taste: **"Hermes" is already taken twice in the
-Classic family**, and one of them is a chat translator that Classic players
-search for by that exact name.
-
-| Existing addon | What it is | Reach |
-| --- | --- | --- |
-| Hermes | raid cooldown tracker (retail, 2015) | 444.6K downloads |
-| Hermes (Era & TBC), Hermes (Wrath Classic) | Alliance/Horde chat translator | 47.6K downloads |
-
-So the addon is **HermesAI**: folder `HermesAI`, SavedVariables `HermesAI*`,
-slash commands `/hermesai` and `/hai`. A search for "hermesai" turns up nothing
-else, and both `github.com/btsouth/hermes-wow` and `github.com/btsouth/hermesai`
-are free. The CurseForge slug (`hermesai`) must be confirmed when the project is
-created, since their search does not report availability for unclaimed slugs.
-
-Renaming after release is expensive (SavedVariables keys, the folder name, the
-toc filename), which is why this is decided now, before anyone has installed it.
+The addon is **HermesAI**: folder `HermesAI`, SavedVariables `HermesAI*`,
+slash command `/hermesai` (short form `/hai`). This distinguishes the addon from
+other projects called Hermes. No store-name availability is implied.
 
 ## What we build instead
 
@@ -76,8 +62,9 @@ Two surfaces, each doing what it is actually good at.
 - Board: rows per session, status colour, project, age, live activity text.
   Click a row, type a reply, `Enter`.
 - `Sync` (button, keybind, or `/hermesai sync`) is a UI reload. That one gesture
-  moves both directions at once: the client writes what you queued into
-  SavedVariables on the way out and reads the new `Data.lua` on the way back.
+  writes queued actions into SavedVariables and reads `Data.lua` on the way
+  back. The bridge dispatches on its next poll, so another sync may be needed
+  before the action result appears.
   Reload, not a loading screen, and it refuses while you are in combat.
 - The snapshot refreshes for free on login, so the board is current every time
   you start playing.

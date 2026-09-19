@@ -5,8 +5,8 @@ Why this exists: a WoW frame cannot be iterated on quickly (every change costs a
 client restart, and the panel is drawn by the client, not by me). So the layout,
 wording and density get settled in a browser first, against the real roster.
 
-This is not a mockup. It mirrors `addon/HermesAI/UI.lua`: the same 560x536 frame,
-34px rows, ten of them, the same palette table, the same tab labels and counts,
+This is not a mockup. It mirrors `addon/HermesAI/UI.lua`: the same 560x540 frame,
+34px rows, twelve of them, the same palette table, the same tab labels and counts,
 the same truncation, the same footer. When this and the addon disagree, the addon
 is right and this file is the bug.
 
@@ -87,10 +87,15 @@ BUTTON_HOVER = to_hex(THEME["buttonHover"])
 BUTTON_ACTIVE = to_rgba(THEME["buttonActive"])
 FIELD = to_rgba(THEME["field"])
 
-GOLD = "#c8a45c"
-TEXT = "#e8edf7"
-MUTED = "#949eb9"
-DIM = "#70778f"
+# Text roles change with contrast fixes too, so read them with the theme.
+def text_color(name: str) -> str:
+    match = re.search(rf"local {name} = \{{([^}}]+)\}}", UI_SOURCE)
+    if not match:
+        raise ValueError(f"missing addon text role {name}")
+    return to_hex([float(value.strip()) for value in match[1].split(",")])
+
+
+GOLD, TEXT, MUTED, DIM = (text_color(name) for name in ("GOLD", "TEXT", "MUTED", "DIM"))
 
 TABS = [
     ("all", "All", None),
@@ -252,11 +257,12 @@ def render_detail(session: dict | None) -> str:
       <div class="detail">
         <div class="dtitle">{html.escape(session['title'] or '')}</div>
         <div class="dmeta">{html.escape(' / '.join(where))}</div>
-        <div class="dstatus" style="color:{color}">{html.escape(session.get('status_label') or '')} {SEP} last activity {age_phrase(session['age_s'])} {SEP} session {html.escape(session['id'])}</div>
+        <div class="dstatus"><span style="color:{color}">{html.escape(session.get('status_label') or STATUS_LABELS[session['status']])}</span><span class="status-trail">last activity {age_phrase(session['age_s'])}{SEP}{html.escape(session['id'])}</span></div>
         <div class="dpreview">{html.escape(truncate(body, 900))}</div>
         <div class="dstats">{html.escape(session.get("activity") or "not reporting an activity")}</div>
-        <div class="facts">{fact_rows}</div>
         <div class="dtarget">the reply goes to {html.escape(host if host and host != 'local' else 'this machine')}</div>
+        <div class="facts">{fact_rows}</div>
+        <div class="session-actions">{'<span class="button mark-read">Mark read</span>' if session.get('activity_at') is not None else ''}{'<span class="button stop-turn">Stop turn</span>' if session['status'] == 'working' and host in (None, '', 'local') else ''}</div>
         <div class="composer">
           <div class="input">Reply to {html.escape(session['id'][-8:])}...  <span class="caret"></span></div>
           <span class="button">Hand off</span>
@@ -264,6 +270,17 @@ def render_detail(session: dict | None) -> str:
         </div>
         <div class="hint">Enter sends the reply and syncs. Hand off puts the session on your clipboard for the desktop app.</div>
       </div>"""
+
+
+def render_first_run() -> str:
+    return '<div class="first-run"><strong>Your agents, in Azeroth</strong><p>See what needs you and reply from the game.</p><code>hermes-wow wow publish</code><p>Run this command on your computer, then press Sync.</p></div>'
+
+
+def render_toast(session: dict | None) -> str:
+    if not session:
+        return ""
+    status = session["status"]
+    return f'<div class="toast" style="color:{COLORS.get(status, DIM)}">{html.escape(STATUS_LABELS.get(status, status) + ": " + session.get("title", ""))}</div>'
 
 
 def row_counts(sessions: list[dict]) -> dict:
@@ -280,18 +297,23 @@ def row_counts(sessions: list[dict]) -> dict:
 
 
 def render_panel(data: dict, *, mode: str) -> str:
-    sessions = data.get("sessions", [])
+    sessions = [] if mode == "first-run" else data.get("sessions", [])
+    if mode == "toast":
+        return render_toast(sessions[0] if sessions else None)
+    if mode == "working":
+        sessions = sorted(sessions, key=lambda row: row["status"] != "working")
+        mode = "detail"
     counts = row_counts(sessions)
     attention = counts.get("needs", 0) + counts.get("error", 0)
     # The roster reports when it was generated; there is no separate age field,
     # and reading one that never exists made every render say "just now".
     generated_at = float(data.get("generated_at") or time.time())
-    age = age_label(max(0.0, time.time() - generated_at))
+    age = "never synced" if mode == "first-run" else age_phrase(max(0.0, time.time() - generated_at))
 
     tabs = []
     for key, label, bucket in TABS:
-        count = len(sessions) if bucket is None else counts.get(bucket, 0)
-        active = " active" if key == ("all" if mode == "board" else "needs") else ""
+        count = len(sessions) if bucket is None else counts.get(bucket, 0) + (counts.get("idle", 0) if bucket == "finished" else 0)
+        active = " active" if key == "all" else ""
         tabs.append(f'<span class="tab{active}">{html.escape(label)} {count}</span>')
 
     if mode == "detail":
@@ -302,8 +324,10 @@ def render_panel(data: dict, *, mode: str) -> str:
             render_row(session, index + 1, offline=is_offline(session, offline_hosts))
             for index, session in enumerate(sessions[:ROW_COUNT])
         )
-        if not rows:
-            rows = '<div class="empty">No snapshot yet: run <code>hermes-wow wow install</code>, then sync.</div>'
+        if mode == "first-run":
+            rows = render_first_run()
+        elif not rows:
+            rows = '<div class="empty">No agents yet. Start a session in Hermes, then sync.</div>'
         body = f'<div class="rows">{rows}</div>'
 
     offline_hosts = data.get("hosts_offline") or []
@@ -316,15 +340,15 @@ def render_panel(data: dict, *, mode: str) -> str:
       <div class="header">
         <span class="crest">H</span>
         <span class="name">Hermes Agents</span>
-        <span class="badge">{attention} need you</span>
+        <span class="badge">{'no snapshot' if mode == 'first-run' else (('1 needs you' if attention == 1 else str(attention) + ' need you') if attention else 'all clear')}</span>
         <span class="synced">{'+' + str(data.get('new_count', 0)) + ' new, ' if data.get('new_count') else ''}synced {age}</span>
-        <span class="button tiny">*</span><span class="button tiny">-</span><span class="button tiny">X</span>
+        <span class="button sync">Sync</span><span class="button tiny">*</span><span class="button tiny">-</span><span class="button tiny">X</span>
       </div>
       <div class="search">Search agents, threads, or projects...<span class="caret"></span></div>
       <div class="tabs">{''.join(tabs)}</div>
 {body}
       <div class="footer">
-        <span>{'host offline: ' + ', '.join(offline_hosts) if offline_hosts else 'needs you / new reply / working / waiting / finished'}</span>
+        <span class="legend">{'no snapshot: run hermes-wow wow publish, then sync' if mode == 'first-run' else ('host offline: ' + ', '.join(offline_hosts) if offline_hosts else 'needs you / new reply / working / waiting / finished')}</span>
         <span style="margin-left:auto">{trailer}</span>
       </div>
     </div>"""
@@ -399,7 +423,7 @@ def demo_board() -> dict:
     """
     return {
         "generated_at": time.time() - 120,
-        "sessions": [dict(session, status_label=STATUS_LABELS[session["status"]])
+        "sessions": [dict(session, activity_at=time.time() - session["age_s"], status_label=STATUS_LABELS[session["status"]])
                      for session in DEMO_SESSIONS],
         "hosts": {"local": "ok", "terra": "ok"},
         "hosts_offline": [],
@@ -417,14 +441,15 @@ def style_block() -> str:
             background: linear-gradient(180deg, #141b2e, {PANEL_BG});
             border: 1px solid var(--edge); border-radius: 4px;
             box-shadow: 0 0 18px rgba(47,107,216,.35), inset 0 0 40px rgba(47,107,216,.05); }}
-  .header {{ display: flex; align-items: center; gap: 6px; padding: 9px 12px 6px; }}
+  .header {{ display: flex; align-items: center; gap: 4px; padding: 9px 8px 6px 12px; }}
   .crest {{ color: var(--gold); font-weight: 700; }}
   .name {{ font-weight: 600; }}
   .badge {{ color: #ffa843; font-size: 12px; margin-left: 4px; }}
   .synced {{ margin-left: auto; color: var(--dim); font-size: 11.5px; }}
   .button {{ padding: 1px 7px; border: 1px solid rgba(148,158,185,.45); border-radius: 3px;
              color: var(--muted); font-size: 11.5px; background: {BUTTON}; }}
-  .button.tiny {{ padding: 0 5px; }}
+  .button.tiny {{ padding: 0; width: 22px; height: 18px; box-sizing: border-box; text-align: center; }}
+  .button.sync {{ padding: 0; width: 48px; height: 18px; box-sizing: border-box; text-align: center; }}
   .button.primary {{ border-color: var(--edge); color: var(--text); background: rgba(47,107,216,.28); }}
   .search {{ margin: 2px 12px 0; padding: 4px 8px; border: 1px solid rgba(148,158,185,.35); border-radius: 3px;
              background: {FIELD}; color: var(--dim); font-size: 12px; }}
@@ -450,7 +475,7 @@ def style_block() -> str:
   .dtitle {{ font-weight: 600; font-size: 14px; }}
   .dmeta {{ color: var(--muted); font-size: 11.5px; margin-top: 2px; }}
   .dstatus {{ font-size: 11.5px; margin-top: 8px; }}
-  .dpreview {{ color: var(--text); font-size: 12px; margin-top: 10px; line-height: 1.45; }}
+  .dpreview {{ height: 56px; flex-shrink: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; color: var(--text); font-size: 12px; margin-top: 10px; line-height: 1.45; }}
   .dstats {{ color: var(--muted); font-size: 11.5px; margin-top: 12px; }}
   .dtarget {{ color: var(--dim); font-size: 11.5px; margin-top: 6px; }}
   /* The pane is taller than one paragraph needs, so the facts the player would
@@ -464,6 +489,35 @@ def style_block() -> str:
             background: rgba(0,0,0,.35); color: var(--dim); font-size: 12px; }}
   .hint {{ color: var(--dim); font-size: 11px; margin-top: 10px; }}
   .footer {{ display: flex; padding: 5px 12px 8px; color: var(--dim); font-size: 11px; }}
+  .panel {{ position: relative; }}
+  .header {{ height: 34px; box-sizing: border-box; }}
+  .name, .button {{ flex-shrink: 0; }}
+  .badge, .synced {{ min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .badge {{ flex: 1; }}
+  .synced {{ max-width: 130px; }}
+  .search {{ position: absolute; top: 39px; left: 0; right: 0; height: 22px; box-sizing: border-box; }}
+  .tabs {{ position: absolute; top: 66px; left: 0; right: 0; padding-top: 0; padding-bottom: 0; }}
+  .rows {{ position: absolute; top: 95px; left: 0; right: 0; bottom: 28px; }}
+  .footer {{ position: absolute; bottom: 0; left: 0; right: 0; gap: 24px; }}
+  .legend {{ flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+  .footer > :last-child {{ max-width: 230px; flex-shrink: 0; }}
+  .detail {{ position: absolute; top: 95px; left: 0; right: 0; bottom: 27px; box-sizing: border-box; overflow: hidden; }}
+  .dtitle, .dmeta, .dstats, .dtarget {{ overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }}
+  .dstatus {{ display: flex; gap: 8px; }}
+  .dstatus > :first-child {{ flex-shrink: 0; }}
+  .status-trail {{ color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }}
+  .session-actions {{ position: absolute; bottom: 78px; left: 12px; display: flex; gap: 8px; }}
+  .session-actions .button {{ width: 90px; height: 22px; box-sizing: border-box; text-align: center; }}
+  .composer {{ position: absolute; bottom: 44px; left: 12px; right: 12px; }}
+  .composer .input {{ min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }}
+  .composer .button {{ width: 118px; height: 22px; box-sizing: border-box; text-align: center; }}
+  .composer .primary {{ width: 72px; }}
+  .hint {{ position: absolute; bottom: 22px; left: 12px; right: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }}
+  .first-run {{ margin: 54px 29px 0; width: 480px; text-align: left; color: var(--text); }}
+  .first-run strong {{ display: block; height: 32px; font-size: 14px; color: var(--text); }}
+  .first-run p {{ margin: 0; height: 32px; }}
+  .first-run code {{ display: block; height: 32px; font: inherit; }}
+  .toast {{ width: 420px; height: 36px; box-sizing: border-box; padding: 8px 12px; background: {PANEL_BG}; border: 1px solid var(--edge); border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
   .note {{ width: 380px; color: var(--muted); font-size: 12px; }}
   .note h3 {{ color: var(--text); font-size: 12.5px; margin: 0 0 6px; }}
   .note li {{ margin-bottom: 5px; }}
@@ -510,7 +564,7 @@ def render(data: dict, *, now: float, source: str = "your live roster") -> str:
         <li>{len(sessions)} sessions, {attention} needing you, generated {generated}.</li>
         <li>Left: the board. Right: the detail pane that opens when you click a row (composer focused, ready to type).</li>
         <li>Same numbers the addon computes: tab counts, the synced stamp, per-row age, host and project.</li>
-        <li>Not pictured: the movable badge, the minimap button with its count, the settings pane, and the first-run card.</li>
+        <li>Not pictured: the movable badge, minimap button and settings pane. Use --only first-run or --only toast for onboarding and notifications.</li>
         <li>Fonts and chrome are the client's in game, so text is a little tighter than this.</li>
       </ul>
     </div>
@@ -527,7 +581,7 @@ def main() -> int:
     parser.add_argument("--demo", action="store_true",
                         help="the built-in made-up roster, for pictures that should not "
                              "contain anyone's real work")
-    parser.add_argument("--only", choices=("board", "detail"),
+    parser.add_argument("--only", choices=("board", "detail", "first-run", "toast", "working"),
                         help="one bare panel on a transparent page, for rasterising")
     args = parser.parse_args()
 

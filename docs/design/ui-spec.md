@@ -42,8 +42,14 @@ in full screen and nothing can sit on top of it.
 - last thing the agent said, or the last activity line while it is working
 - messages count, tokens and estimated cost for the session
 - composer: type a reply, `Enter` queues it; sending syncs so the reply leaves
-  and fresh status comes back in one gesture
-- a `jump to session` action that queues a focus request for the desktop app
+  the bridge dispatches after its next poll; sync again to see the result
+- `Hand off` queues a clipboard and desktop notification request
+- `Mark read` queues bridge-side dismissal for this host, session and activity;
+  newer activity resurfaces the session without changing Hermes database read state
+- `Stop turn` appears only for local working sessions and queues an interrupt
+  for an already-active desktop session. No resume or remote fallback is used.
+  Interrupt clears queued prompts and denies pending approvals; delayed delivery
+  can reach a later turn in the same session
 
 ## Tabs, defined against real signals
 
@@ -96,7 +102,7 @@ Rules that keep this from becoming a liability:
 - **`+N new`** after a sync that brought new attention items, so a refresh
   announces what changed instead of silently redrawing.
 - **A first-run card** when the bridge has never run: what Hermes is, the one
-  command to run on the machine, and nothing else. A blank board is a bad first
+  command `hermes-wow wow publish`, and the instruction to sync afterwards. A blank board is a bad first
   impression and a worse support thread.
 - **Stale and incompatible states** rendered as such, never as an empty list.
 
@@ -170,13 +176,13 @@ rather than a hole), font objects. Every addon does this.
   across the whole line made every row shout, and the dot and the legend already
   carry the status. Tooltip on hover, detail pane on click.
 - **detail pane**: title, where it lives, status, last activity, session id,
-  message count, cost, preview of the last output, composer, `Send`, `Hand off`.
-- **settings pane**: refresh on loading screens, sound, minimap button, sync on
+  message count, cost, preview of the last output, composer, `Send`, `Hand off`, and a separate `Mark read` / `Stop turn` row.
+- **settings pane**: refresh on loading screens, sound, Sync toasts, minimap button, sync on
   send, skin, the current sync policy in plain words, and position reset.
 - **minimap button**: our own round button with a live count badge; left click
   opens the panel, right click syncs, drag moves it around the minimap.
-- **first-run and degraded states**: no snapshot, incompatible payload, and stale
-  snapshot each get an explicit line in the footer; none of them render as an
+- **first-run and degraded states**: no snapshot gets a first-run card; incompatible and stale
+  snapshots get an explicit line in the footer; none of them render as an
   empty board. A list with no rows in it says which nothing it is - "nothing
   matches ..." for a search, "no agents yet" for a board that has never had one -
   because a blank rectangle under a header reading "all clear" looks like a
@@ -191,12 +197,14 @@ rather than a hole), font objects. Every addon does this.
   read, `MUTED` for the trail behind it, `DIM` for what is there if you look. `DIM`
   is held at or above 4.5:1 against the panel, which is the small-text bar, and a
   gate computes that from the palette rather than trusting the value.
-- **sound**: one cue when a sync brings something new that needs the player.
+- **sync toast**: a 420x36 frame near the top centre, one fitted status and title
+  line in its status colour. Click opens that session. It holds for six seconds,
+  fades for one second, then hides. First run is silent; transitions have a
+  per-session/kind cooldown. The Sync toasts setting controls it.
+- **sound**: optional cue for those transitions, independently controlled.
 - **hand-off**: puts the session id on the clipboard and raises a desktop
   notification. Hermes exposes no outside API to focus a session in the desktop
   app, so this is the honest maximum; faking it would be worse than nothing.
-
-## Art
 
 ## Not yet verified in game
 
@@ -206,8 +214,8 @@ browser and a Lua stub are not the client.
 
 One configuration has been played on: **1440p, with the game's `Use UI Scale`
 checkbox off** (the client's default scale for the display). Everything here is
-measured rather than guessed — `fitText` measures with `GetStringWidth`, the
-geometry is in pixels at that scale — so an unfamiliar UI scale is the first place
+measured rather than guessed; `fitText` measures with `GetStringWidth`, the
+geometry is in pixels at that scale; so an unfamiliar UI scale is the first place
 a layout defect would still be hiding, and it is the item no offline gate can
 reach.
 
@@ -222,3 +230,6 @@ against other minimap addons (several hook the same ring), and whether the badge
    it has not answered), outranking stale unread output.
 2. Remote hosts: settled for 1.0, see the Remote hosts section.
 3. Skin: settled. Dark blue default, own textures, Blizzard-native as an option.
+
+Chat session ids are links scoped to the addon prefix; clicking one selects its
+host and session without replacing the client hyperlink handler.

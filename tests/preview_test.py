@@ -92,6 +92,25 @@ check("...and its page background is overridden to transparent",
 check("the page names where it came from", "a made-up roster" in page)
 check("...and never claims a live roster in demo mode", "your live roster" not in page)
 
+# Visible states use the same controls and text roles as the client.
+first_run = panel_preview.render_bare({}, mode="first-run")
+empty = panel_preview.render_bare({"sessions": []}, mode="board")
+working = panel_preview.render_bare(panel_preview.demo_board(), mode="working")
+remote = dict(panel_preview.DEMO_SESSIONS[1], host="terra")
+check("first run gives the publish command and sync step", "hermes-wow wow publish" in first_run and "then press Sync" in first_run)
+check("first run has no false freshness or all-clear claim", "synced never synced" in first_run and ">no snapshot<" in first_run and ">all clear<" not in first_run)
+check("an empty published roster is distinct from first run", "No agents yet" in empty and "Your agents, in Azeroth" not in empty)
+check("detail offers mark read", 'class="button mark-read"' in page)
+check("local working detail offers stop", 'class="button stop-turn"' in working)
+check("nonworking and remote detail omit stop", 'class="button stop-turn"' not in page and 'class="button stop-turn"' not in panel_preview.render_detail(remote))
+check("toast uses the session status color", f'color:{panel_preview.COLORS["needs"]}' in panel_preview.render_toast(panel_preview.DEMO_SESSIONS[0]))
+check("text colors follow the addon palette", panel_preview.DIM == panel_preview.to_hex([.52, .55, .63]))
+check("finished tab includes idle sessions", "Finished 1" in panel_preview.render_panel({"sessions": [dict(panel_preview.DEMO_SESSIONS[0], status="idle")]}, mode="board"))
+check("long output is bounded above detail actions", "height: 56px; flex-shrink: 0; overflow: hidden" in page and "-webkit-line-clamp: 4" in page)
+check("detail status trail is muted separately", 'class="status-trail"' in page)
+check("header carries the visible sync control", 'class="button sync">Sync<' in page)
+check("header and composer can shrink text without covering controls", ".badge, .synced { min-width: 0" in page and ".composer .input { min-width: 0" in page)
+
 print("")
 if failures:
     print("PREVIEW FAILED: " + "; ".join(failures))

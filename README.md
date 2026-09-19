@@ -3,6 +3,17 @@
 Hermes agents in Azeroth: a native in-game board for what needs you, plus the
 out-of-game half that feeds it.
 
+![HermesAI board with fictional sessions](docs/art/store-banner.png)
+
+See which agents need you, reply, mark messages read, or request a running turn
+to stop without leaving the game. Status updates arrive when you sync.
+
+**Requires an existing local Hermes installation and its session store.** The
+addon zip alone cannot connect to agents. Run the Python bridge on the computer
+with the game client; keep `wow watch` running to publish snapshots and dispatch
+actions. Stop also requires the running Hermes desktop backend. Linux is the
+tested bridge host; other operating systems are not verified.
+
 The platform constraints that decide this design, and why an addon cannot be a
 live monitor on its own: [docs/design/wow-mode.md](docs/design/wow-mode.md).
 
@@ -10,7 +21,7 @@ live monitor on its own: [docs/design/wow-mode.md](docs/design/wow-mode.md).
 
 | Piece | Where | What it does |
 | --- | --- | --- |
-| Addon `HermesAI` | `addon/HermesAI/` | The product: badge, board, detail pane with a composer, settings, minimap button, keybinds. The game draws it, so full screen and any UI scale are fine |
+| Addon `HermesAI` | `addon/HermesAI/` | The product: badge, board, detail pane with a composer, settings, minimap button, keybinds. The game draws it in full screen; non-default UI scales still need in-game verification |
 | Bridge | `wowmode/wowclient.py` | Publishes the roster into the addon's `Data.lua`, reads queued replies out of SavedVariables, dispatches them |
 | Roster engine | `wowmode/roster.py` | Sessions, statuses, unread, live turns, straight from the session store |
 | Replies | `wowmode/backend.py` | Desktop backend RPC (`session.resume` then `prompt.submit`), falling back to a detached `hermes chat --resume` turn |
@@ -24,16 +35,31 @@ page, not an image).
 
 ## Getting the addon
 
+Start with a working local Hermes installation, Python 3, and a supported WoW
+client. Clone the bridge and put its command on this terminal's path:
+
+```bash
+git clone https://github.com/btsouth/hermes-wow.git
+cd hermes-wow
+export PATH="$PWD/bin:$PATH"
+hermes-wow wow status
+```
+
+If client detection does not find your installation, set
+`HERMES_WOW_ADDON_DIR` to its `Interface/AddOns` directory before the commands
+below. The current addon interface pin is 16001 (Classic beta); other builds
+are not verified.
+
 Two ways, and the difference matters:
 
 ```bash
-make package                          # -> dist/HermesAI-0.5.0.zip
+make package                          # -> dist/HermesAI-0.6.0.zip
 ```
 
 That zip is the same artifact a release publishes: one top-level `HermesAI/`
 folder, correct for an addon manager or a manual unzip into
 `Interface/AddOns/`. **Only one thing may own that folder.** If a manager or a
-zip installed it, do not run `wow install` over it — `wow publish` refreshes the
+zip installed it, do not run `wow install` over it; `wow publish` refreshes the
 snapshot and leaves the code alone, and `wow install` refuses without `--force`
 for exactly this reason.
 
@@ -51,7 +77,7 @@ and in game:
 
 - click the badge, or type `/hermesai` (short form `/hai`), to open the board
 - click a session, type a reply, `Enter` (it syncs by default: the reply goes
-  out and fresh status comes back in one UI reload)
+  out at the next bridge poll; sync again to see the result)
 - `/hermesai sync` forces a refresh, `/hermesai status` prints the snapshot to
   chat, `/hermesai help` lists the rest
 - keybinds live under **Key Bindings, AddOns, Hermes Agents**
@@ -97,6 +123,27 @@ If no backend is up, or the RPC refuses, the reply falls back to a detached
 `hermes chat -Q --resume <id> --oneshot -q <text>` turn: slower, about ten
 seconds, but it needs nothing running.
 
+## Read, stop, and notifications
+
+- **Mark read** in the detail pane queues a bridge-side dismissal. Sync to send
+  it. The bridge remembers the host, session, and activity timestamp; newer
+  activity brings the session back. It never writes Hermes's session database.
+- **Stop turn** appears for local working sessions. It queues until sync and
+  interrupts only an already-active desktop session. It cannot start or resume
+  one, and there is no CLI or remote-stop fallback. Backend failures are reported
+  in the dispatch result. Interrupt also clears queued prompts and denies pending
+  approvals. A delayed stop can reach a later turn in the same session, so use
+  it only when you intend to interrupt that session's current work.
+- After a sync, a small **toast** announces new attention or work that finished.
+  Click it to open that session. First run is silent and repeated transitions
+  have a cooldown. Settings has separate sound and Sync toasts toggles.
+- Session links in addon chat open the corresponding detail pane.
+
+Sync flushes queued actions to SavedVariables and reloads the UI. The bridge
+processes that file on its next poll. The same reload may happen before the new
+result is published; sync again to see delivery, dismissal, or stop results.
+There is no live in-game feed.
+
 ## Other machines
 
 The board can merge agents from more than one box. Each host is polled over ssh
@@ -128,14 +175,14 @@ Rules the merge keeps:
 The panel has been played on **one machine, one client build, one configuration:
 1440p with the game's own `Use UI Scale` checkbox left off** (so the client's
 default scale for the display). That last part is worth knowing rather than
-burying, because this UI is *measured* rather than guessed — text is fitted with
-`GetStringWidth` and the geometry is in pixels at a 1.0 scale — and a non-default
+burying, because this UI is *measured* rather than guessed; text is fitted with
+`GetStringWidth` and the geometry is in pixels at a 1.0 scale; and a non-default
 UI scale or a much smaller or larger display is the most likely place for a layout
 problem to still be hiding. The gates are offline and structurally cannot see it:
 they prove the logic, not the pixels.
 
-**English only.** The locale indirection is real — `Locale.lua`, and the release
-lint fails on a hard-coded user-facing string — but no translation files ship.
+**English only.** The locale indirection is real; `Locale.lua`, and the release
+lint fails on a hard-coded user-facing string; but no translation files ship.
 
 Not verified at all: multiple accounts, a fresh install with no historical
 SavedVariables, other clients in the Classic family, and every addon that touches
@@ -158,7 +205,7 @@ Also worth knowing:
 | Target | What it is for |
 | --- | --- |
 | `make package` | the release zip, into `dist/` |
-| `make icon MASTER=…` | turns generated art into the shipped `icon.tga` and wires the toc — see `docs/design/icon-art.md` for the palette and the prompts |
+| `make icon MASTER=…` | turns generated art into the shipped `icon.tga` and wires the toc; see `docs/design/icon-art.md` for the palette and the prompts |
 | `make banner` | composes the store-page banner from the emblem, the addon's own panel rendered against a made-up roster, and a real-font wordmark |
 | `make interface IFACE=…` | moves the interface pin to a new client build, in both places it is written down |
 | `make preview` | the same panel renderer, against your live roster, into `docs/panel-preview.html` |

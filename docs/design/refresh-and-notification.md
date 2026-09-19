@@ -15,7 +15,9 @@ cost, and each covering the gap the others cannot.
 
 ## 1. In game: spend reloads deliberately, never accidentally
 
-A sync = write SavedVariables + `ReloadUI()`. Cost: roughly 1 to 3 seconds of
+A sync = write SavedVariables + `ReloadUI()`. The bridge sees the flushed
+outbox on its next poll; that reload can precede the updated snapshot. Sync again
+to see action results. Cost: roughly 1 to 3 seconds of
 frozen UI and a frame rebuild, no world reload, no loading screen. Measured as a
 share of play time it is negligible, but the *timing* is what the player feels,
 so the policy is strict.
@@ -86,7 +88,9 @@ Because the snapshot can be minutes old, the UI has to say so, permanently:
 - board header: `synced 4m ago`, and a `Sync` button next to it
 - after a load, anything that changed since the last look is called out:
   `+2 new since you last looked`, and the badge pulses once, with an optional
-  sound
+  sound. A clickable toast shows new attention and completed work at sync,
+  seeds first-run history silently, and rate-limits repeated session/kind
+  transitions. Sound and Sync toasts have separate settings
 - if the bridge has stopped writing (no fresh data for 15 minutes), the board
   says `bridge offline` instead of showing an old count as if it were current
 - if the file is corrupt or from an incompatible bridge version, the addon falls
@@ -114,7 +118,9 @@ conventions as the reply outbox. Why a string instead of a Lua table:
 
 ## Performance budget, stated plainly
 
-- Addon: zero `OnUpdate` handlers. No polling of any kind. Work happens on
+- Addon: `OnUpdate` exists only during minimap dragging and the one-second toast
+  fade, and clears itself when finished. A timer starts the fade after six
+  seconds. No roster polling. Work happens on
   events (UI load, combat end, zone change, clicks) and is bounded by the number
   of rows on screen. Rows are built once and reused; a refresh writes strings.
 - Bridge: one read-only query per poll against a WAL database (indexed by the
