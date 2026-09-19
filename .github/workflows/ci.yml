@@ -26,23 +26,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Addon under a stub client API
-        run: lua5.1 tests/wow_stub.lua
-
-      - name: Wire format, routing and release lint
-        run: |
-          python3 tests/roster_test.py
-          python3 tests/roundtrip.py
-          python3 tests/hostile_test.py
-          python3 tests/hosts_test.py
-          python3 tests/addon_checks.py
-          python3 tests/package_test.py
-          python3 tests/preview_test.py
-          python3 tests/notify_test.py
+      - name: Every offline gate and Lua compilation
+        run: make check lint
 
       - name: The release zip is what the client and an installer want
         run: python3 scripts/package_addon.py --out dist
-
-      - name: Every Lua file compiles
-        run: |
-          for file in addon/HermesAI/*.lua; do luac5.1 -p "$file" || exit 1; done

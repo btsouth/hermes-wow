@@ -5,7 +5,7 @@ name: release
 # version the changelog has not recorded, so a tag that does not match the code
 # cannot produce an artifact.
 #
-#   git tag v0.5.0 && git push origin v0.5.0
+#   git tag v0.6.0 && git push origin v0.6.0
 
 on:
   push:
@@ -29,16 +29,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Gates
-        run: |
-          lua5.1 tests/wow_stub.lua
-          python3 tests/roster_test.py
-          python3 tests/roundtrip.py
-          python3 tests/hostile_test.py
-          python3 tests/hosts_test.py
-          python3 tests/addon_checks.py
-          python3 tests/package_test.py
-          python3 tests/notify_test.py
+      - name: Every offline gate and Lua compilation
+        run: make check lint
 
       - name: The tag has to be the version the changelog records
         run: |
@@ -55,4 +47,5 @@ jobs:
         with:
           files: dist/*.zip
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          body_path: docs/releases/${{ github.ref_name }}.md
+          prerelease: true

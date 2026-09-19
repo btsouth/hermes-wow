@@ -54,6 +54,8 @@ with tempfile.TemporaryDirectory() as tmp:
         check("the zip carries no directory entries of its own",
               not any(name.endswith("/") for name in names), str(names[:3]))
 
+        check("both shipped icons are present", {"HermesAI/icon.tga", "HermesAI/icon-128.png"}.issubset(names))
+        check("bindings are bundled once", names.count("HermesAI/Bindings.xml") == 1)
         top_level = {name.split("/", 1)[0] for name in names}
         check("everything is under exactly one top-level folder",
               top_level == {package_addon.ADDON_NAME}, ", ".join(sorted(top_level)))
@@ -99,7 +101,8 @@ with tempfile.TemporaryDirectory() as tmp:
     original_changelog = package_addon.CHANGELOG
     try:
         package_addon.CHANGELOG = Path(tmp) / "unreleased.md"
-        package_addon.CHANGELOG.write_text("## [0.5.0] - unreleased\n", encoding="utf-8")
+        package_addon.CHANGELOG.write_text(
+            f"## [{package_addon.addon_version(ADDON)}] - unreleased\n", encoding="utf-8")
         try:
             build_into(Path(tmp) / "dist2")
             refused = False
@@ -107,7 +110,8 @@ with tempfile.TemporaryDirectory() as tmp:
         except package_addon.PackagingError as exc:
             refused = True
             why = str(exc)
-        check("an unreleased version is refused", refused, why)
+        check("an unreleased version is refused for its release status",
+              refused and "still calls" in why and "unreleased" in why, why)
     finally:
         package_addon.CHANGELOG = original_changelog
 
