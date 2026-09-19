@@ -1,9 +1,9 @@
-# hermes-wow
+# HermesWoW
 
 Hermes agents in Azeroth: a native in-game board for what needs you, plus the
 out-of-game half that feeds it.
 
-![HermesAI board with fictional sessions](docs/art/store-banner.png)
+![HermesWoW board with fictional sessions](docs/art/store-banner.png)
 
 [Download 0.7.0 preview](https://github.com/btsouth/hermes-wow/releases/tag/v0.7.0)
 · [In-game checklist](#what-has-been-tested-and-what-has-not)

@@ -50,6 +50,7 @@ PANEL_SLACK = 600 / 620  # the shot's height as a share of its width
 EMBLEM_HEIGHT = 280
 GAP = 120
 WORDMARK_SIZE = 60
+WORDMARK = "HermesWoW"
 
 
 def render_panel(work: Path, scale: int = 2) -> Path:
@@ -112,7 +113,10 @@ def compose(out: Path, emblem_path: Path) -> Path:
     panel = Image.open(panel_shot).convert("RGBA")
     panel = panel.resize((round(PANEL_BOX * PANEL_SLACK), round(PANEL_BOX * PANEL_SLACK)), Image.LANCZOS)
 
-    width_left = max(emblem.width, 300)
+    font = make_icon.load_font(WORDMARK_SIZE)
+    draw = ImageDraw.Draw(canvas)
+    box = draw.textbbox((0, 0), WORDMARK, font=font)
+    width_left = max(emblem.width, box[2] - box[0])
 
     # Centre the whole composition: the left block, a gap, then the panel, with equal
     # margins. Measuring rather than placing by eye, so a longer wordmark or a wider
@@ -121,16 +125,13 @@ def compose(out: Path, emblem_path: Path) -> Path:
     left = (WIDTH - total) // 2
 
     emblem_y = (HEIGHT - (EMBLEM_HEIGHT + 30 + WORDMARK_SIZE + 12)) // 2
-    canvas.alpha_composite(emblem, (left, emblem_y))
+    canvas.alpha_composite(emblem, (left + (width_left - emblem.width) // 2, emblem_y))
 
-    font = make_icon.load_font(WORDMARK_SIZE)
-    draw = ImageDraw.Draw(canvas)
-    box = draw.textbbox((0, 0), "HermesAI", font=font)
     text_top = emblem_y + EMBLEM_HEIGHT + 30 - box[1]
 
     offset = max(1, WORDMARK_SIZE // 40)
-    draw.text((left + offset, text_top + offset), "HermesAI", font=font, fill=(0, 0, 0, 140))
-    draw.text((left, text_top), "HermesAI", font=font, fill=(232, 237, 247, 255))
+    draw.text((left + offset, text_top + offset), WORDMARK, font=font, fill=(0, 0, 0, 140))
+    draw.text((left, text_top), WORDMARK, font=font, fill=(232, 237, 247, 255))
 
     canvas.alpha_composite(panel, (left + width_left + GAP, (HEIGHT - panel.height) // 2))
 
