@@ -144,7 +144,7 @@ the minimap at the same time.
 ## Development
 
 ```
-make check        # every gate: no game client, no network (seven suites)
+make check        # every gate: no game client, no network
 make preview      # render the panel against the live roster
 make install      # copy the addon into the client and publish
 ```

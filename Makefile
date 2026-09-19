@@ -1,8 +1,9 @@
 # hermes-wow development tasks.
 #
-# `make check` is the gate: five offline suites, no game client, no network. If it
-# passes, the addon loads, the two halves agree on the wire format, and the
-# release lint is clean. It is also what CI runs.
+# `make check` is the gate: every suite offline, no game client, no network. If it
+# passes, the addon loads, the two halves agree on the wire format, the release lint
+# is clean and the release zip is the shape the client wants. Also what CI runs.
+# (No count here on purpose: it has been wrong twice.)
 
 SHELL := /bin/bash
 
