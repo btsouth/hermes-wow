@@ -8,8 +8,8 @@
 -- Rules this file follows, because the client punishes the alternatives:
 --   * fonts are referenced by NAME (passing the font object is a client error)
 --   * frames that take a backdrop ask for BackdropTemplate
---   * no OnUpdate except while dragging the minimap button: everything else
---     happens on events and clicks
+--   * OnUpdate only while dragging the minimap button or fading a toast;
+--     toast delays use C_Timer.After and fading removes its own handler
 --   * widgets are built once and reused, so a refresh writes text and toggles
 --     what already exists instead of allocating
 --   * text that must fit is measured with GetStringWidth, never guessed at by
@@ -841,7 +841,6 @@ function ns:BuildPanel()
 
   local synced = colorize(fontString(panel, "OVERLAY", FONT_SMALL), DIM)
   synced:SetPoint("LEFT", attention, "RIGHT", 10, 0)
-  synced:SetWidth(160)
   synced:SetJustifyH("LEFT")
   synced:SetWordWrap(false)
   panel.synced = synced
@@ -863,6 +862,10 @@ function ns:BuildPanel()
   end, L["Settings: skin, sound, refresh policy"])
   settingsButton:SetPoint("RIGHT", minimise, "LEFT", -4, 0)
   panel.settingsButton = settingsButton
+  panel.sync = makeButton(panel, 48, 18, L["Sync"], function()
+    ns:Sync("board")
+  end, L["Sync Hermes (reloads the UI)"])
+  panel.sync:SetPoint("RIGHT", settingsButton, "LEFT", -4, 0)
 
   -- search: a plain field over the panel, with its own inset box so the text does
   -- not float on the panel colour
@@ -1002,6 +1005,21 @@ function ns:BuildPanel()
   empty:Hide()
   panel.empty = empty
 
+  local firstRun = CreateFrame("Frame", nil, panel)
+  firstRun:SetPoint("TOPLEFT", 40, -150)
+  firstRun:SetSize(PANEL_WIDTH - 80, 160)
+  firstRun.lines = {}
+  for index, text in ipairs({ L["Your agents, in Azeroth"],
+      L["See what needs you and reply from the game."], L["hermes-wow wow publish"],
+      L["Run this command on your computer, then press Sync."] }) do
+    local line = colorize(fontString(firstRun, "OVERLAY", index == 1 and FONT_TITLE or FONT_BODY), TEXT)
+    line:SetPoint("TOPLEFT", 0, -(index - 1) * 32)
+    line.fullText = text
+    fitText(line, text, PANEL_WIDTH - 80)
+    firstRun.lines[index] = line
+  end
+  panel.firstRun = firstRun
+
   panel:Hide()
   self.Board = panel
   return panel
@@ -1024,6 +1042,8 @@ function ns:PanelStatusLine()
   if bridgeError ~= "" then
     return ns.Lf("bridge cannot read the session store: %s", bridgeError)
   end
+  local notice = self:Data().notice
+  if notice and notice ~= "" then return notice end
   return nil
 end
 
@@ -1080,19 +1100,20 @@ function ns:RefreshPanel()
   local attentionText = headline or (attention > 0
     and (attention == 1 and L["1 needs you"] or ns.Lf("%d need you", attention))
     or L["all clear"])
-  if panel.attentionText ~= attentionText then
-    panel.attentionText = attentionText
-    fitText(panel.attention, attentionText, PANEL_WIDTH - 260)
-  end
+  -- All three labels share the space before the 126px button cluster.
+  fitText(panel.title, L["Hermes Agents"], 180)
+  local headerSpace = math.max(0, PANEL_WIDTH - 166 - panel.title:GetStringWidth() - 24)
+  fitText(panel.attention, attentionText, headerSpace * 0.55)
   panel.attention:SetTextColor(unpack(
     headline and self.STATUS_COLORS.error
       or (attention > 0 and self.STATUS_COLORS.needs or self.STATUS_COLORS.reply)))
 
-  local synced = ns.Lf("synced %s", self:AgeLabel(self:SnapshotAge()))
+  local synced = self:IsMissing() and L["never synced"]
+    or ns.Lf("synced %s", self:AgeLabel(self:SnapshotAge()))
   if self:NewCount() > 0 then
     synced = ns.Lf("+%d new, %s", self:NewCount(), synced)
   end
-  fitText(panel.synced, synced, 160)
+  fitText(panel.synced, synced, math.max(0, headerSpace - panel.attention:GetStringWidth() - 10))
 
   -- Where you are in the list, then who is down. A list longer than the panel
   -- must say so, or the missing rows look like they do not exist.
@@ -1160,7 +1181,11 @@ function ns:RefreshPanel()
       fitText(panel.empty, message, PANEL_WIDTH - 80)
     end
   end
-  panel.empty:SetShown(not collapsed and #sessions == 0)
+  panel.empty:SetShown(not collapsed and #sessions == 0 and not self:IsMissing())
+  for _, line in ipairs(panel.firstRun.lines) do
+    fitText(line, line.fullText, PANEL_WIDTH - 80)
+  end
+  panel.firstRun:SetShown(not collapsed and self:IsMissing())
 
   for index, row in ipairs(panel.rows) do
     -- Explicit, not `collapsed and nil or ...`: that idiom returns the session
@@ -1370,6 +1395,9 @@ function ns:BuildDetail()
   detail.preview = colorize(fontString(detail, "OVERLAY", FONT_BODY), TEXT)
   detail.preview:SetPoint("TOPLEFT", detail.status, "BOTTOMLEFT", 0, -10)
   detail.preview:SetWidth(DETAIL_TEXT_WIDTH)
+  -- Long output must not move the facts through the action row below it.
+  detail.preview:SetHeight(56)
+  detail.preview:SetMaxLines(4)
   detail.preview:SetJustifyH("LEFT")
 
   detail.stats = colorize(fontString(detail, "OVERLAY", FONT_SMALL), MUTED)
@@ -1451,9 +1479,24 @@ function ns:BuildDetail()
   focus:SetPoint("RIGHT", send, "LEFT", -ACTION_GAP, 0)
   detail.focus = focus
 
+  detail.markRead = makeButton(detail, 90, 22, L["Mark read"], function()
+    if ns:QueueMarkRead(ns.selected) then
+      ns:Print(L["mark read queued; press Sync to apply it."])
+      ns:RefreshBadge()
+    end
+  end, L["Dismiss this activity after the next sync. New activity appears again."])
+  detail.markRead:SetPoint("BOTTOMLEFT", 12, 78)
+  detail.stop = makeButton(detail, 90, 22, L["Stop turn"], function()
+    if ns:QueueStop(ns.selected) then
+      ns:Print(L["stop queued; press Sync. It stops the turn active on delivery and clears queued prompts and approvals."])
+      ns:RefreshBadge()
+    end
+  end, L["Queued until Sync. Stops the turn active on delivery, including a later turn. Clears queued prompts and approvals."])
+  detail.stop:SetPoint("LEFT", detail.markRead, "RIGHT", 8, 0)
+
   local hint = colorize(fontString(detail, "OVERLAY", FONT_SMALL), DIM)
   hint:SetPoint("BOTTOMLEFT", 12, 22)
-  hint:SetText(L["Enter sends the reply and syncs. Hand off copies the session for the desktop app."])
+  fitText(hint, L["Enter sends and syncs. Hand off copies the session for the desktop app."], DETAIL_TEXT_WIDTH)
   detail.hint = hint
 
   detail:Hide()
@@ -1517,6 +1560,10 @@ function ns:OpenDetail(session, takeFocus)
   end
   detail.preview:SetText(shorten(body, 900))
 
+  fitText(detail.markRead.label, L["Mark read"], detail.markRead:GetWidth() - 12)
+  fitText(detail.stop.label, L["Stop turn"], detail.stop:GetWidth() - 12)
+  detail.markRead:SetShown(tonumber(session.activity_at) ~= nil)
+  detail.stop:SetShown(session.status == "working" and (session.host or "local") == "local")
   detail.composer:SetText("")
   detail:Show()
 
@@ -1552,6 +1599,7 @@ function ns:SettingsOptions()
   return {
     { key = "badge", label = L["Show the badge"], kind = "bool" },
     { key = "opportunistic", label = L["Refresh on loading screens"], kind = "bool" },
+    { key = "toasts", label = L["Sync toasts"], kind = "bool" },
     { key = "sound", label = L["Sound when something needs you"], kind = "bool" },
     { key = "minimap", label = L["Minimap button"], kind = "bool" },
     { key = "sendOnSync", label = L["Sync when a reply is sent"], kind = "bool" },
@@ -1682,6 +1730,7 @@ end
 --- leaves a panel that is half one skin and half the other.
 function ns:RefreshSkin()
   applyBackdrop(self.Board)
+  applyBackdrop(self.Toast)
   applyBackdrop(self.Badge)
   if self.Detail then
     applyBackdrop(self.Detail, 0.97)
@@ -1692,7 +1741,7 @@ function ns:RefreshSkin()
   end
   applyFieldBackdrop(self.Board.searchField, theme().field, theme().buttonEdge)
 
-  for _, button in ipairs({ self.Board.close, self.Board.minimise, self.Board.settingsButton }) do
+  for _, button in ipairs({ self.Board.close, self.Board.minimise, self.Board.settingsButton, self.Board.sync }) do
     ns:SkinButton(button)
   end
   for _, button in ipairs(self.Board.tabs) do
@@ -1702,7 +1751,7 @@ function ns:RefreshSkin()
   -- the moment the skin changes: its own buttons stayed in the old palette until
   -- something happened to hover them.
   if self.Detail then
-    for _, button in ipairs({ self.Detail.close, self.Detail.send, self.Detail.focus }) do
+    for _, button in ipairs({ self.Detail.close, self.Detail.send, self.Detail.focus, self.Detail.markRead, self.Detail.stop }) do
       ns:SkinButton(button)
     end
   end
@@ -1859,6 +1908,47 @@ function ns:ToggleBoard()
   end
 end
 
+function ns:ShowToast(session)
+  if HermesAIDB.toasts == false then return end
+  local toast = self.Toast
+  if not toast then
+    toast = backdropFrame("Button", nil, UIParent, "BackdropTemplate")
+    toast:SetSize(420, 36)
+    toast:SetPoint("TOP", UIParent, "TOP", 0, -110)
+    toast:SetFrameStrata("DIALOG")
+    toast:EnableMouse(true)
+    toast.text = fontString(toast, "OVERLAY", FONT_BODY)
+    toast.text:SetPoint("LEFT", 12, 0)
+    self.Toast = toast
+  end
+  toast.generation = (toast.generation or 0) + 1
+  local generation = toast.generation
+  applyBackdrop(toast)
+  fitText(toast.text, self:StatusLabel(session.status) .. ": " .. (session.title or session.id), 396)
+  toast.text:SetTextColor(self:StatusColor(session.status))
+  toast:SetScript("OnUpdate", nil)
+  toast:SetAlpha(1)
+  toast:Show()
+  toast:SetScript("OnClick", function()
+    self:ShowBoard()
+    self:OpenDetail(session, false)
+    toast:SetScript("OnUpdate", nil)
+    toast:Hide()
+  end)
+  C_Timer.After(6, function()
+    if toast.generation ~= generation or not toast:IsShown() then return end
+    local elapsed = 0
+    toast:SetScript("OnUpdate", function(frame, delta)
+      elapsed = elapsed + delta
+      frame:SetAlpha(math.max(0, 1 - elapsed))
+      if elapsed >= 1 then
+        frame:SetScript("OnUpdate", nil)
+        frame:Hide()
+      end
+    end)
+  end)
+end
+
 function ns:BuildUI()
   self.offset = self.offset or 0
   self:BuildBadge()
@@ -1871,9 +1961,7 @@ function ns:BuildUI()
   self:RefreshPanel()
   self:RefreshSettings()
 
-  if self:NewCount() > 0 then
-    self:PlayAttention(self:NewCount())
-  end
+  self:NotifyTransitions()
 end
 
 --- Drop everything cached about how text fits.

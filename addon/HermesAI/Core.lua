@@ -9,7 +9,7 @@
 local addonName, ns = ...
 
 ns.ADDON = addonName
-ns.VERSION = "0.5.0"
+ns.VERSION = "0.6.0"
 
 local L = ns.L
 
@@ -84,6 +84,7 @@ ns.DEFAULT_DB = {
   tab = "all",
   theme = "dark",
   sound = true,
+  toasts = true,
   badge = true,
   minimap = true,
   minimapAngle = 210,
@@ -340,7 +341,7 @@ end
 --- player who typed that sentence got a clipboard instead of a reply. Kinds are
 --- a closed set, so the alternative is a control channel that cannot collide
 --- with anything a person can type.
-ns.OUTBOX_KINDS = { reply = true, focus = true }
+ns.OUTBOX_KINDS = { reply = true, focus = true, mark_read = true, stop = true }
 
 --- Replies live in one delimited SavedVariables string. Separators are stripped
 --- out of user text instead of escaped, so the Python side needs no Lua parser.
@@ -413,6 +414,102 @@ function ns:QueueFocus(session)
     return false
   end
   return self:QueueEntry("focus", session.id, "", session.host)
+end
+
+function ns:QueueMarkRead(session)
+  if not session or not tonumber(session.activity_at) then
+    return false
+  end
+  return self:QueueEntry("mark_read", session.id, session.activity_at, session.host)
+end
+
+function ns:QueueStop(session)
+  if not session or session.status ~= "working" or (session.host or "local") ~= "local" then
+    return false
+  end
+  return self:QueueEntry("stop", session.id, "", session.host)
+end
+
+-- Hex fields keep host names containing colons out of the hyperlink grammar.
+local function linkEncode(value)
+  return (tostring(value or ""):gsub(".", function(char)
+    return string.format("%02x", string.byte(char))
+  end))
+end
+
+local function linkDecode(value)
+  if #value % 2 ~= 0 or value:find("[^%x]") then return nil end
+  return (value:gsub("%x%x", function(pair) return string.char(tonumber(pair, 16)) end))
+end
+
+function ns:SessionLink(session)
+  return "|Hhermesai:" .. linkEncode(session.host or "local") .. ":" .. linkEncode(session.id)
+    .. "|h[" .. tostring(session.id):gsub("|", "") .. "]|h"
+end
+
+function ns:OpenSessionLink(link)
+  local host, id = tostring(link):match("^hermesai:(%x+):(%x+)$")
+  if not host then return false end
+  host, id = linkDecode(host), linkDecode(id)
+  for _, session in ipairs(self:Sessions()) do
+    if session.id == id and (session.host or "local") == host then
+      self:ShowBoard()
+      self:OpenDetail(session, false)
+      return true
+    end
+  end
+  self:Print(L["this session is no longer in the snapshot; press Sync."])
+  return false
+end
+
+hooksecurefunc("SetItemRef", function(link)
+  if type(link) == "string" and link:match("^hermesai:") then
+    ns:OpenSessionLink(link)
+  end
+end)
+
+-- Persist transitions rather than the bridge's 'new' list: repeated reloads of
+-- one snapshot must never ring twice, nor should an offline host look finished.
+function ns:NotifyTransitions()
+  if self:IsMissing() or self:IsStale() or self:BridgeError() ~= "" then return {} end
+  local prior = type(HermesAIDB.toastHistory) == "table" and HermesAIDB.toastHistory or nil
+  local cooled = type(HermesAIDB.toastCooldown) == "table" and HermesAIDB.toastCooldown or {}
+  local current, events = {}, {}
+  for _, session in ipairs(self:Sessions()) do
+    local key = (session.host or "local") .. "|" .. session.id
+    local status = session.status
+    if self:IsOffline(session) then
+      current[key] = prior and prior[key] or nil
+    else
+      current[key] = status
+      local before = prior and prior[key]
+      local completed = (status == "reply" or status == "finished" or status == "idle")
+        and (before == "working" or before == "waiting")
+      local actionable = status == "needs" or status == "error" or status == "reply" or completed
+      local cooldownKey = key .. "|" .. (completed and "finished" or status)
+      local last = tonumber(cooled[cooldownKey])
+      if prior and actionable and before ~= status and (not last or time() - last >= 600)
+          and HermesAIDB.toasts ~= false then
+        if #events < 3 then
+          events[#events + 1] = session
+          cooled[cooldownKey] = time()
+        else
+          -- Keep overflow eligible at the next sync instead of losing it forever.
+          current[key] = before
+        end
+      end
+    end
+  end
+  for key, stamp in pairs(cooled) do
+    if not tonumber(stamp) or time() - tonumber(stamp) >= 600 then cooled[key] = nil end
+  end
+  HermesAIDB.toastHistory, HermesAIDB.toastCooldown = current, cooled
+  self:PlayAttention(#events)
+  for index, session in ipairs(events) do
+    local target = session
+    C_Timer.After((index - 1) * 7, function() ns:ShowToast(target) end)
+  end
+  return events
 end
 
 function ns:OutboxCount()
@@ -686,7 +783,7 @@ local function printStatus()
     ns:Print(ns.Lf("%d new since your last sync", ns:NewCount()))
   end
   for _, session in ipairs(ns:Sessions()) do
-    ns:Print("#" .. session.id .. "  " .. (session.label or "") .. "  " .. (session.title or ""))
+    ns:Print(ns:SessionLink(session) .. "  " .. (session.label or "") .. "  " .. (session.title or ""))
   end
   return true
 end

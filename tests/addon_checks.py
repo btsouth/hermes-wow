@@ -64,6 +64,8 @@ def check_toc() -> list[str]:
     for name in listed:
         check(f"toc file listed and present: {name}", (ADDON / name).is_file())
 
+    check("bindings and icons are loaded by name, not listed twice",
+          not {"Bindings.xml", "icon.tga", "icon-128.png"}.intersection(listed))
     on_disk = {path.name for path in ADDON.glob("*.lua")}
     missing_from_toc = on_disk - set(listed)
     check("every .lua is listed in the toc", not missing_from_toc, ", ".join(sorted(missing_from_toc)))
@@ -188,7 +190,7 @@ def check_placeholder_data() -> None:
 
     if probe.returncode == 0:
         out = probe.stdout.strip()
-        check("Data.lua payload type", out in ("empty-string", "HE-tag|schema=2"), out)
+        check("Data.lua payload type", out in ("empty-string", "HE-tag|schema=3"), out)
 
     toc = read(ADDON / "HermesAI.toc")
     for name in ("HermesAIOutbox", "HermesAISync", "HermesAILastGood"):
@@ -318,7 +320,7 @@ def check_kind_vocabulary() -> None:
     if not match:
         return
 
-    addon_kinds = set(re.findall(r"([a-z]+)\s*=\s*true", match.group(1)))
+    addon_kinds = set(re.findall(r"([a-z_]+)\s*=\s*true", match.group(1)))
     bridge = Path(__file__).resolve().parent.parent / "wowmode" / "wowclient.py"
     if not bridge.is_file():
         return
@@ -328,7 +330,7 @@ def check_kind_vocabulary() -> None:
     if not bridge_match:
         return
 
-    bridge_kinds = set(re.findall(r'"([a-z]+)"', bridge_match.group(1)))
+    bridge_kinds = set(re.findall(r'"([a-z_]+)"', bridge_match.group(1)))
     check("addon and bridge agree on the outbox kinds", addon_kinds == bridge_kinds,
           f"addon={sorted(addon_kinds)} bridge={sorted(bridge_kinds)}")
 

@@ -79,3 +79,17 @@ end
 function time()
   return 1789771234
 end
+
+local secureHooks = {}
+function SetItemRef(link)
+  for _, callback in ipairs(secureHooks) do callback(link) end
+end
+function hooksecurefunc(name, callback)
+  assert(name == "SetItemRef" and type(callback) == "function")
+  secureHooks[#secureHooks + 1] = callback
+end
+C_Timer = { pending = {} }
+function C_Timer.After(delay, callback)
+  assert(type(delay) == "number" and delay >= 0 and type(callback) == "function")
+  C_Timer.pending[#C_Timer.pending + 1] = { delay = delay, callback = callback }
+end

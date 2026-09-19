@@ -14,7 +14,7 @@ local addonName, ns = ...
 local L = ns.L
 
 ns.PAYLOAD_TAG = "HE1"
-ns.PAYLOAD_SCHEMA = 2
+ns.PAYLOAD_SCHEMA = 3
 
 local function split(text, sep)
   local out, pos = {}, 1
@@ -70,7 +70,7 @@ function ns:ParsePayload(raw)
     return nil
   end
 
-  local meta = { schema = nil, bridge = "", generated = 0, rows = nil, acked = 0, error = "", new = {}, hosts = {} }
+  local meta = { schema = nil, bridge = "", generated = 0, rows = nil, acked = 0, error = "", notice = "", new = {}, hosts = {} }
   for index = 2, #header do
     local key, value = string.match(header[index] or "", "^([%w_]+)=(.*)$")
     if key == "schema" then
@@ -85,6 +85,8 @@ function ns:ParsePayload(raw)
       -- The bridge saying it could not read the session store: the difference
       -- between "no agents are running" and "Hermes is not answering".
       meta.error = value or ""
+    elseif key == "notice" then
+      meta.notice = value or ""
     elseif key == "acked" then
       -- How far the bridge has got through our outbox. Anything at or below it
       -- has been dealt with, so the addon can stop carrying it around.
@@ -144,6 +146,7 @@ function ns:ParsePayload(raw)
         cost = toNumber(fields[10], 0),
         offline = fields[11] == "1",
         preview = fields[12] or "",
+        activity_at = fields[13] or "",
         label = self.STATUS_LABELS[status] or status,
       })
       counts[status] = (counts[status] or 0) + 1
@@ -174,6 +177,7 @@ function ns:ParsePayload(raw)
     acked = meta.acked,
     rejected = rejected,
     error = meta.error,
+    notice = meta.notice,
     hosts = meta.hosts,
   }
 end

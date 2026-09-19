@@ -34,6 +34,45 @@ local KNOWN_FONT_OBJECTS = {
 -- `SetBackdrop` call on a frame created without BackdropTemplate, which this
 -- gate would have caught before the client did.
 
+local clock, timers = 0, {}
+C_Timer = {}
+function C_Timer.After(delay, callback)
+  assert(type(delay) == "number" and delay >= 0 and type(callback) == "function")
+  timers[#timers + 1] = { due = clock + delay, callback = callback }
+end
+local function advanceTimers(seconds)
+  local target = clock + seconds
+  while true do
+    local nextIndex
+    for index, timer in ipairs(timers) do
+      if timer.due <= target and (not nextIndex or timer.due < timers[nextIndex].due) then
+        nextIndex = index
+      end
+    end
+    if not nextIndex then break end
+    local timer = table.remove(timers, nextIndex)
+    clock = timer.due
+    timer.callback()
+  end
+  clock = target
+end
+local itemHooks = {}
+function SetItemRef(link)
+  for _, hook in ipairs(itemHooks) do hook(link) end
+end
+function hooksecurefunc(name, callback, hook)
+  if type(name) == "table" then
+    local original = assert(name[callback])
+    name[callback] = function(...)
+      original(...)
+      hook(...)
+    end
+    return
+  end
+  assert(name == "SetItemRef" and type(callback) == "function")
+  itemHooks[#itemHooks + 1] = callback
+end
+
 local function baseWidget(kind)
   local widget = { kind = kind, shown = true, text = "", scripts = {}, events = {} }
 
@@ -68,6 +107,11 @@ local function baseWidget(kind)
   end
   function widget:ClearAllPoints()
     self.points = {}
+  end
+
+  function widget:SetAlpha(alpha)
+    assert(type(alpha) == "number" and alpha >= 0 and alpha <= 1)
+    self.alpha = alpha
   end
 
   widget.height = 100
@@ -148,6 +192,10 @@ local function addTextMethods(widget)
   function widget:SetShadowColor() end
   function widget:SetJustifyH() end
   function widget:SetWordWrap() end
+  function widget:SetMaxLines(lines)
+    assert(type(lines) == "number" and lines >= 0 and lines == math.floor(lines))
+    self.maxLines = lines
+  end
   function widget:SetFontObject() end
   function widget:GetStringWidth()
     return #tostring(self.text or "") * (_G.__char_width or 6)
@@ -296,14 +344,6 @@ UIPanelCloseButton = "UIPanelCloseButton"
 InputBoxTemplate = "InputBoxTemplate"
 BackdropTemplate = "BackdropTemplate"
 
-C_Timer = {
-  After = function(_, fn)
-    if fn then
-      fn()
-    end
-  end,
-}
-
 local reloadCount = 0
 function ReloadUI()
   reloadCount = reloadCount + 1
@@ -446,7 +486,7 @@ _G["HermesAI"] = ns
 -- The payload the bridge would have written before this UI session: two
 -- sessions, one of them asking a question, one new since the last sync.
 HermesAIData = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 30)
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 30)
     .. "|rows=2|acked=0|hosts=local:ok;terra:ok|new=20260918_182123_e733d6",
   "20260918_182123_e733d6|needs|30|local|default|Projects|Build WoW mode for Hermes||12|0.4200|0|Should I ship the panel?",
   "20260918_181445_cd30b7|working|260|terra|default|MachineMind|Verify the booking sync|receiving stream response|90|1.2000|0|still working",
@@ -491,7 +531,7 @@ check("...and the composer gets the same box as the search field",
   ns.Detail.composerField.backdrop ~= nil
     and ns.Detail.composerField.backdrop.edgeSize == fieldBackdrop.edgeSize,
   ns.Detail.composerField.backdrop and tostring(ns.Detail.composerField.backdrop.edgeSize))
-check("a new-reply snapshot makes a sound", (_G.__sounds or 0) >= 1, tostring(_G.__sounds))
+check("first snapshot seeds notifications silently", (_G.__sounds or 0) == 0, tostring(_G.__sounds))
 
 ns:Toggle()
 check("toggle shows the panel", ns.Board:IsShown() == true)
@@ -752,7 +792,7 @@ check("a fresh snapshot does not trigger a zone sync", (_G.__reloads or 0) == zo
 
 -- ...but a stale one, out in the world, may.
 HermesAIData = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 900) .. "|rows=1|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 900) .. "|rows=1|acked=0|hosts=local:ok|new=",
   "20260918_182123_e733d6|needs|900|local|default|Projects|Build WoW mode for Hermes||12|0.4200|0|",
 }, ";;")
 HermesAISync = time() - 3600
@@ -788,7 +828,7 @@ check("missing payload is reported as missing", state.missing == true)
 
 -- Restore the good payload for the remaining checks.
 HermesAIData = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 30) .. "|rows=1|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 30) .. "|rows=1|acked=0|hosts=local:ok|new=",
   "20260918_182123_e733d6|needs|30|local|default|Projects|Build WoW mode for Hermes||12|0.4200|0|",
 }, ";;")
 ns:RefreshSnapshot()
@@ -881,7 +921,7 @@ check("help takes one command", table.concat(_G.__said, " "):find("/hermesai syn
 -- A list longer than the panel must say where you are in it, and clamp at both
 -- ends, or the missing rows read as sessions that do not exist.
 local long = {
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 20) .. "|rows=20|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 20) .. "|rows=20|acked=0|hosts=local:ok|new=",
 }
 for index = 1, 20 do
   long[#long + 1] = "20260918_1800" .. string.format("%02d", index)
@@ -941,7 +981,7 @@ check("sync reloads exactly once", (_G.__reloads or 0) == reloadsBefore + 1,
 -- with the rows, because the bridge's counts cover a wider window than the
 -- payload carries.
 HermesAIData = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 10)
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 10)
     .. "|rows=3|acked=0|hosts=local:ok;terra:offline|new=",
   "20260918_180001|needs|10|local|default|Projects|A short title||3|0.1000|0|Ready when you are",
   "20260918_180002|working|120|terra|default|MachineMind|"
@@ -1026,7 +1066,7 @@ check("...and nothing that cannot be read as a seq", HermesAIOutbox:find("broken
 check("an acked of zero drops nothing", ns:TrimOutbox(0) == 0, tostring(ns:TrimOutbox(0)))
 
 -- ...and the payload's acked field is what feeds it
-local parsedAck = ns:ParsePayload("HE1|bridge=0.4.0|schema=2|generated=1|rows=1|acked=7|hosts=local:ok|new="
+local parsedAck = ns:ParsePayload("HE1|bridge=0.4.0|schema=3|generated=1|rows=1|acked=7|hosts=local:ok|new="
   .. ";;20260918_180001|needs|1|local|default|Projects|title||1|0|0|")
 -- A deleted WTF folder restarts the counter; the mark from the old install must
 -- not delete replies that were never sent.
@@ -1111,7 +1151,7 @@ ns:SetSearch("")
 ns:RefreshPanel()
 
 -- the page keys the header comment promised
-local long2 = { "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=30|acked=0|hosts=local:ok|new=" }
+local long2 = { "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=30|acked=0|hosts=local:ok|new=" }
 for index = 1, 30 do
   long2[#long2 + 1] = "20260918_1900" .. string.format("%02d", index)
     .. "|reply|" .. (index * 30) .. "|local|default|Projects|Paged session " .. index .. "||||0|"
@@ -1158,7 +1198,7 @@ ns:RefreshBadge()
 
 -- A stray separator shifts the records; the debris used to count as a session.
 local shifted = {
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
   "20260918_182123_e733d6|needs|30|local|default|Projects|a title;;;|needs|30|local|default|Projects|junk",
 }
 HermesAIData = table.concat(shifted, ";;")
@@ -1169,7 +1209,7 @@ check("...and the board still shows the real one", ns:Sessions()[1].id == "20260
 
 -- An id that cannot be an id is refused with the payload, not shown as a row.
 local junkId = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
   "x|needs|30|local|default|Projects|too short to be a session||1|0|0|",
 }, ";;")
 local junkParsed = ns:ParsePayload(junkId)
@@ -1185,7 +1225,7 @@ check("...and the board is honest about it rather than blank", state.stale == fa
 -- A file SHORTER than the bridge said it wrote is a torn write, and that is still
 -- refused whole: the rows that did arrive cannot be trusted either.
 local torn = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=3|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=3|acked=0|hosts=local:ok|new=",
   "20260918_182123_e733d6|needs|30|local|default|Projects|only one of three arrived||1|0|0|",
 }, ";;")
 check("a short file is refused whole", ns:ParsePayload(torn) == nil)
@@ -1193,7 +1233,7 @@ check("a short file is refused whole", ns:ParsePayload(torn) == nil)
 -- Refitting: the fitting caches are only valid for the metrics they were taken
 -- at, so a scale change has to clear them.
 HermesAIData = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
   "20260918_182123_e733d6|needs|30|local|default|Projects|A title that is long enough to be measured||12|0.4200|0|preview",
 }, ";;")
 ns:RefreshSnapshot()
@@ -1204,7 +1244,7 @@ ns:RefreshPanel()
 -- The proof of a refit is that the text changes with the metrics: a bigger font
 -- fits fewer characters, so the fitted title gets shorter.
 HermesAIData = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
   "20260918_182123_e733d6|needs|30|local|default|Projects|"
     .. string.rep("word ", 40) .. "||12|0.4200|0|preview",
 }, ";;")
@@ -1242,7 +1282,7 @@ ns.collapsed = false
 -- so every row from the real host read as offline and the footer named a machine
 -- nobody configured.
 local colonPayload = ns:ParsePayload(
-  "HE1|bridge=0.4.0|schema=2|generated=1|rows=1|acked=0|hosts=foundry:2222:ok|new="
+  "HE1|bridge=0.4.0|schema=3|generated=1|rows=1|acked=0|hosts=foundry:2222:ok|new="
   .. ";;20260918_180001|needs|1|foundry:2222|default|Projects|title||1|0|0|")
 local parsedHosts = {}
 for name, state in pairs((colonPayload or {}).hosts or {}) do
@@ -1267,7 +1307,7 @@ check("the composer stops where the action buttons begin", overlap <= 0,
 -- window range and down hosts on the right. Two caps that were meant to fit added
 -- up past the panel (380 + 230 against 536), so a notice and a long host list drew
 -- over each other with the trailer on top.
-local footer = { "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5)
+local footer = { "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5)
   .. "|rows=30|acked=0|error=the session store is locked|hosts=local:ok;foundry:offline|new=" }
 for index = 1, 30 do
   footer[#footer + 1] = "20260918_2200" .. string.format("%02d", index)
@@ -1343,7 +1383,7 @@ local function validUtf8(text)
   return true
 end
 
-local euro = { "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=" }
+local euro = { "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=" }
 euro[2] = "20260918_200001|needs|30|local|default|Projects|"
   .. string.rep("\226\130\172", 40) .. "||||0|"
 HermesAIData = table.concat(euro, ";;")
@@ -1363,7 +1403,7 @@ check("...on a character boundary, so the label is still valid UTF-8", utf8Ok ==
 -- or project ran to the pane edge and was clipped mid-word, with no ellipsis, while
 -- the title, the stats, the target and the fact values all ended in one.
 HermesAIData = table.concat({
-  "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
+  "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=1|acked=0|hosts=local:ok|new=",
   "20260918_230001|needs|30|a-very-long-host-name-that-goes-on-and-on.example.internal"
     .. "|a-profile-name|a-project-name|A session with a long where line||1|0|0|",
 }, ";;")
@@ -1464,7 +1504,7 @@ check("collapsing takes the footer with it",
   tostring(ns.Board.legend:IsShown()) .. "/" .. tostring(ns.Board.hosts:IsShown()))
 ns:ToggleCollapsed()
 
-HermesAIData = "HE1|bridge=0.4.0|schema=2|generated=" .. (1789771234 - 5) .. "|rows=0|acked=0|hosts=local:ok|new="
+HermesAIData = "HE1|bridge=0.4.0|schema=3|generated=" .. (1789771234 - 5) .. "|rows=0|acked=0|hosts=local:ok|new="
 ns:RefreshSnapshot()
 ns:SetTab("all")
 ns:SetSearch("")
@@ -1472,6 +1512,138 @@ ns:RefreshPanel()
 check("an empty board says there is nothing yet rather than nothing",
   ns.Board.empty:IsShown() == true and ns.Board.empty.text:find("no agents yet", 1, true) ~= nil,
   tostring(ns.Board.empty.text))
+
+
+-- New controls carry exact observed activity and keep duplicate host ids distinct.
+local one = { id = "20260918_230001", host = "local", status = "working", title = "One", activity_at = "123.75" }
+local two = { id = one.id, host = "foundry:2222", status = "needs", title = "Two", activity_at = "124" }
+ns.snapshot = { sessions = { one, two }, hosts = {}, error = "", counts = {}, attention = 1 }
+ns.loaded = { snapshot = ns.snapshot }
+HermesAIOutbox = ""
+check("mark read queues its observed timestamp", ns:QueueMarkRead(one)
+  and HermesAIOutbox:find("|mark_read|local|" .. one.id .. "|123.75", 1, true) ~= nil)
+check("mark read rejects a snapshot without a watermark", not ns:QueueMarkRead({ id = one.id }))
+check("stop queues only a local running session", ns:QueueStop(one)
+  and HermesAIOutbox:find("|stop|local|" .. one.id .. "|", 1, true) ~= nil
+  and not ns:QueueStop(two))
+ns:OpenDetail(one, false)
+check("long detail output stays above actions", ns.Detail.preview:GetHeight() == 56 and ns.Detail.preview.maxLines == 4)
+check("local working detail offers both controls", ns.Detail.stop:IsShown() and ns.Detail.markRead:IsShown())
+ns:OpenDetail(two, false)
+check("remote detail hides unsupported stop", not ns.Detail.stop:IsShown())
+local link = ns:SessionLink(two)
+check("chat emits a custom session hyperlink", link:find("|Hhermesai:", 1, true) ~= nil)
+ns.selected = nil
+SetItemRef(link:match("|H(.-)|h"))
+check("secure hyperlink hook resolves the host and session", ns.selected == two)
+SetItemRef("item:123")
+check("unrelated hyperlinks are untouched", ns.selected == two)
+
+local noticePayload = ns:ParsePayload("HE1|schema=3|rows=0|generated=1789771234|notice=stop delivery uncertain")
+check("control notices parse separately from roster errors", noticePayload.notice == "stop delivery uncertain" and noticePayload.error == "")
+ns.snapshot.notice = noticePayload.notice
+ns:RefreshPanel()
+check("control notice reaches the footer", ns.Board.legend.text:find("stop delivery uncertain", 1, true) ~= nil)
+
+HermesAIDB.toastHistory, HermesAIDB.toastCooldown = nil, nil
+HermesAIDB.toasts, HermesAIDB.sound = true, true
+local silentSounds = _G.__sounds or 0
+check("toast first run is silent", #ns:NotifyTransitions() == 0 and (_G.__sounds or 0) == silentSounds)
+one.status = "needs"
+local events = ns:NotifyTransitions()
+check("control notice does not suppress attention transitions", #events == 1)
+check("new attention emits one transition", #events == 1 and events[1] == one)
+advanceTimers(0)
+check("toast fits and uses status colour", ns.Toast:IsShown() and ns.Toast.text:GetStringWidth() <= 396
+  and ns.Toast.text.textColor[1] == ns.STATUS_COLORS.needs[1])
+ns.Toast:Fire("OnClick")
+check("toast click selects the session without keyboard focus", ns.selected == one and not ns.Toast:IsShown())
+check("repeated snapshot has no toast", #ns:NotifyTransitions() == 0)
+one.status = "working"; ns:NotifyTransitions()
+one.status = "needs"
+check("flapping attention respects cooldown", #ns:NotifyTransitions() == 0)
+one.status = "working"; ns:NotifyTransitions()
+one.status = "finished"
+check("completion after working emits a toast", #ns:NotifyTransitions() == 1)
+advanceTimers(0)
+check("toast remains opaque before timer", ns.Toast.alpha == 1 and ns.Toast.scripts.OnUpdate == nil)
+advanceTimers(6)
+check("toast delay starts a bounded fade", ns.Toast.scripts.OnUpdate ~= nil)
+ns.Toast:Fire("OnUpdate", 0.5)
+check("toast actually fades", ns.Toast.alpha == 0.5)
+ns.Toast:Fire("OnUpdate", 0.5)
+check("fade hides and removes its update handler", not ns.Toast:IsShown() and ns.Toast.scripts.OnUpdate == nil)
+one.status = "working"; ns:NotifyTransitions()
+one.status = "idle"; one.offline = true
+check("an offline host cannot announce completion", #ns:NotifyTransitions() == 0)
+one.offline = false
+check("completion cooldown spans idle and finished", #ns:NotifyTransitions() == 0)
+one.status = "working"; ns:NotifyTransitions()
+HermesAIDB.toastCooldown = {}
+one.status = "idle"
+HermesAIDB.sound = false
+silentSounds = _G.__sounds or 0
+check("sound off preserves silent visual transitions", #ns:NotifyTransitions() == 1 and (_G.__sounds or 0) == silentSounds)
+local backlog = {}
+for index = 1, 5 do
+  backlog[index] = { id = "backlog_" .. index, host = "local", status = "working", title = "Backlog" }
+end
+ns.snapshot.sessions = backlog
+ns:NotifyTransitions()
+for _, session in ipairs(backlog) do session.status = "finished" end
+check("toast burst caps at three", #ns:NotifyTransitions() == 3)
+check("toast overflow survives until next sync", #ns:NotifyTransitions() == 2)
+ns.snapshot.sessions = { one, two }
+HermesAIDB.toasts = false
+one.status = "error"
+check("toasts can be disabled", #ns:NotifyTransitions() == 0)
+HermesAIDB.toastHistory, HermesAIDB.toastCooldown = "junk", "junk"
+check("corrupt notification state reseeds without error", pcall(function() ns:NotifyTransitions() end))
+
+ns.loaded = { missing = true, snapshot = ns.snapshot }
+ns.snapshot.sessions = {}
+ns:SetSearch("")
+ns:RefreshPanel()
+check("first-run card replaces the empty label", ns.Board.firstRun:IsShown() and not ns.Board.empty:IsShown())
+check("first-run card carries the setup command", ns.Board.firstRun.lines[3].text == "hermes-wow wow publish")
+check("first-run header says never synced once", ns.Board.synced.text == "never synced")
+ns:ShowBoard()
+_G.__char_width = 20
+fire("UI_SCALE_CHANGED")
+check("first-run card refits after a scale change", ns.Board.firstRun.lines[4]:GetStringWidth() <= 480
+  and ns.Board.firstRun.lines[4].text:sub(-3) == "...")
+_G.__char_width = 6
+fire("UI_SCALE_CHANGED")
+ns.loaded.missing = false
+ns:RefreshPanel()
+check("published empty roster hides onboarding", not ns.Board.firstRun:IsShown() and ns.Board.empty:IsShown())
+local reloadBefore = _G.__reloads or 0
+_G.__inCombat = true
+ns.Board.sync:Fire("OnClick")
+check("board Sync refuses combat", (_G.__reloads or 0) == reloadBefore)
+_G.__inCombat = false
+ns.Board.sync:Fire("OnClick")
+check("board Sync reloads outside combat", (_G.__reloads or 0) == reloadBefore + 1)
+HermesAIDB.toasts = true
+ns:ShowToast(one)
+local oldFill = ns.Toast.backdropColor[1]
+HermesAIDB.theme = "classic"
+ns:RefreshSkin()
+check("skin changes repaint a visible toast", ns.Toast.backdropColor[1] ~= oldFill)
+HermesAIDB.theme = "dark"
+ns:RefreshSkin()
+ns.L["Mark read"], ns.L["Stop turn"] = string.rep("Long label ", 8), string.rep("Long label ", 8)
+ns:OpenDetail(one, false)
+check("translated action labels fit buttons", ns.Detail.markRead.label:GetStringWidth() <= 78
+  and ns.Detail.stop.label:GetStringWidth() <= 78)
+
+ns.snapshot.attention = 0
+ns.L["Hermes Agents"] = string.rep("Long translated title ", 10)
+ns.L["all clear"] = string.rep("Long translated status ", 10)
+ns:RefreshPanel()
+check("header labels clear the button cluster even in translation",
+  12 + 12 + 6 + ns.Board.title:GetStringWidth() + 8 + ns.Board.attention:GetStringWidth()
+    + 10 + ns.Board.synced:GetStringWidth() <= 560 - 134)
 
 
 print("")
