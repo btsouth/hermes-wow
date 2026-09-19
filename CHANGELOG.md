@@ -5,6 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 addon and the bridge version independently and the payload is versioned by
 `schema`.
 
+## [0.6.0] - unreleased
+
+### Added
+
+- Clickable in-game transition toasts for new attention and completed work, with
+  a silent first run, cooldowns, optional sound, and a separate toast toggle.
+  Alerts arrive only when the UI loads a fresh snapshot.
+- A first-run card with the publish command and sync step, plus a visible board
+  Sync button that respects the combat guard.
+- Mark read in the detail pane. Suppression lives in the bridge, keyed by host,
+  session and activity timestamp; new activity resurfaces the session without
+  modifying Hermes's database.
+- Clickable chat session links that open the correct host and session.
+- Stop turn for local sessions owned by the running desktop backend, dispatched
+  at sync. It stops the turn active on delivery and clears queued prompts and
+  approvals. Uncertain delivery is reported and never automatically retried.
+
+### Fixed
+
+- Detached CLI replies now record their real exit status. A vanished process
+  without a completion record is uncertain, never proof of delivery.
+- Corrupt dispatch-state recovery survives publishes and restarts. Old queued
+  actions are quarantined with a visible notice instead of accidentally replayed.
+- Quiet notification transitions establish the next baseline, completion alerts
+  are delivered, and different hosts have independent cooldowns. Offline rows
+  cannot notify, and cooling alerts cannot consume the burst allowance.
+- Notification dry runs preserve state; malformed ledgers recover silently, and
+  a notification write failure no longer prevents queued actions from dispatching.
+- Header labels share measured space with all controls. Long detail output stays
+  above the action row, and new controls follow skin and text-size changes.
+- Preview colors, status words, empty states, timestamps, tab counts and detail
+  geometry now match the addon. The public banner uses fictional sessions.
+- Release automation runs every offline gate. Packaging explicitly verifies both
+  icons, single-loaded bindings, and rejection of unreleased versions.
+
+### Changed
+
+- Payload schema 3 carries the displayed activity timestamp for mark read and a
+  separate control notice. Update the bridge and addon together.
+
 ## [0.5.0] - 2026-09-19
 
 ### Fixed (second review pass)
