@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# hermes-wow launcher: picks the interpreter that has Hermes's deps (websockets),
+# then hands off to the CLI.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_PY="${HERMES_HOME:-$HOME/.hermes}/hermes-agent/venv/bin/python"
+
+if [[ -x "$VENV_PY" ]]; then
+  PY="$VENV_PY"
+else
+  PY="$(command -v python3)"
+fi
+
+export HERMES_WOW_ROOT="$ROOT"
+exec "$PY" -c 'import sys; sys.path.insert(0, sys.argv.pop(1)); from wowmode.cli import main; raise SystemExit(main())' "$ROOT" "$@"

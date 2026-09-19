@@ -1,0 +1,17 @@
+<Bindings>
+  <Binding name="HERMESAI_TOGGLE" header="HERMESAI">
+    HermesAI:Toggle()
+  </Binding>
+  <Binding name="HERMESAI_SYNC">
+    HermesAI:Sync()
+  </Binding>
+  <Binding name="HERMESAI_REPLY">
+    HermesAI:ReplyToSelected()
+  </Binding>
+  <Binding name="HERMESAI_PAGE_UP">
+    HermesAI:PageUp()
+  </Binding>
+  <Binding name="HERMESAI_PAGE_DOWN">
+    HermesAI:PageDown()
+  </Binding>
+</Bindings>

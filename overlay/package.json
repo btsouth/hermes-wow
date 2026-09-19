@@ -1,0 +1,7 @@
+{
+  "name": "hermes-wow-overlay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hermes WoW mode: a pinned board of agent sessions over the game.",
+  "main": "main.js"
+}

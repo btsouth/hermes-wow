@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'"
+    />
+    <title>Hermes WoW mode</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="mode-badge">
+    <div id="badge" title="Hermes agent status">
+      <span class="crest">H</span>
+      <span class="badge-text">idle</span>
+      <span class="badge-dots"></span>
+    </div>
+
+    <div id="board">
+      <header id="board-header">
+        <span class="crest">H</span>
+        <span id="board-title">Agents</span>
+        <span id="board-counts"></span>
+        <button id="board-close" type="button" title="Hide to the badge (Esc)">✕</button>
+      </header>
+
+      <div id="rows" role="listbox" aria-label="Hermes sessions"></div>
+
+      <div id="empty">No sessions in the last 3 days.</div>
+
+      <div id="composer" hidden>
+        <label id="composer-label" for="composer-input"></label>
+        <textarea id="composer-input" rows="2" placeholder="Reply here. Enter sends, Shift+Enter breaks the line."></textarea>
+        <div id="composer-hint"><kbd>Enter</kbd> send <kbd>Esc</kbd> cancel</div>
+      </div>
+
+      <footer id="board-footer">
+        <span class="legend"><i class="dot needs"></i>needs you</span>
+        <span class="legend"><i class="dot working"></i>working</span>
+        <span class="legend"><i class="dot reply"></i>new reply</span>
+        <span class="legend"><i class="dot error"></i>error</span>
+        <span id="board-status"></span>
+      </footer>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

@@ -1,0 +1,355 @@
+/* Hermes WoW mode.
+ *
+ * The palette is deliberately game-HUD rather than app-chrome: gold filigree on
+ * near-black, the same weight of border a WoW frame uses, so the bar reads as
+ * part of the game's UI instead of a desktop window parked on top of it. The
+ * status colors match Hermes's own dots so a glance over here agrees with a
+ * glance at the sidebar.
+ */
+
+:root {
+  --ink: #efe6cf;
+  --ink-dim: #a99a7c;
+  --ink-faint: #7d715c;
+  --gold: #c8a45c;
+  --gold-soft: rgba(200, 164, 92, 0.35);
+  --panel: rgba(16, 13, 10, 0.93);
+  --panel-row: rgba(255, 245, 220, 0.04);
+  --panel-row-selected: rgba(200, 164, 92, 0.14);
+  --needs: #e0a53c;
+  --working: #5b9bd5;
+  --reply: #7fb069;
+  --error: #cf5b4b;
+  --idle: #8b8577;
+  --finished: #6b665c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--ink);
+  font-family: system-ui, "Inter", "Segoe UI", sans-serif;
+  font-size: 12.5px;
+  user-select: none;
+}
+
+body.mode-badge #board,
+body.mode-board #badge {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- badge -- */
+
+#badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--gold-soft);
+  background: var(--panel);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+#badge.attention {
+  border-color: var(--gold);
+  box-shadow: 0 4px 18px rgba(200, 164, 92, 0.25);
+}
+
+.crest {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--gold-soft);
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.badge-text {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.badge-text.hot {
+  color: var(--needs);
+}
+
+.badge-dots {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.badge-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: block;
+}
+
+/* ---------------------------------------------------------------- board -- */
+
+#board {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: 11px;
+  border: 1px solid var(--gold-soft);
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+#board-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 12px;
+  border-bottom: 1px solid rgba(200, 164, 92, 0.18);
+  -webkit-app-region: drag;
+}
+
+#board-title {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+#board-counts {
+  display: flex;
+  gap: 6px;
+  margin-left: 2px;
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+
+#board-counts .chip {
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--gold-soft);
+}
+
+#board-counts .chip.hot {
+  color: var(--needs);
+  border-color: var(--needs);
+}
+
+#board-close {
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: 0;
+  color: var(--ink-faint);
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#board-close:hover {
+  color: var(--ink);
+  background: var(--panel-row);
+}
+
+#rows {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+#rows::-webkit-scrollbar {
+  width: 8px;
+}
+
+#rows::-webkit-scrollbar-thumb {
+  background: rgba(200, 164, 92, 0.22);
+  border-radius: 8px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 12px;
+  border-left: 2px solid transparent;
+  cursor: default;
+}
+
+.row.selected {
+  background: var(--panel-row-selected);
+  border-left-color: var(--gold);
+}
+
+.row .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  justify-self: center;
+}
+
+.row .title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row .meta {
+  color: var(--ink-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.row .status {
+  font-weight: 600;
+  color: var(--ink-dim);
+}
+
+.row .status.needs {
+  color: var(--needs);
+}
+
+.row .status.working {
+  color: var(--working);
+}
+
+.row .status.reply {
+  color: var(--reply);
+}
+
+.row .status.error {
+  color: var(--error);
+}
+
+.row .age {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dot.needs {
+  background: var(--needs);
+}
+
+.dot.working {
+  background: var(--working);
+}
+
+.dot.reply {
+  background: var(--reply);
+}
+
+.dot.error {
+  background: var(--error);
+}
+
+.dot.idle {
+  background: var(--idle);
+}
+
+.dot.finished {
+  background: var(--finished);
+}
+
+#empty {
+  padding: 18px 14px;
+  color: var(--ink-faint);
+}
+
+#empty[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------- composer -- */
+
+#composer {
+  border-top: 1px solid rgba(200, 164, 92, 0.18);
+  padding: 8px 10px 10px;
+}
+
+#composer[hidden] {
+  display: none;
+}
+
+#composer-label {
+  display: block;
+  color: var(--gold);
+  font-size: 11px;
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#composer-input {
+  width: 100%;
+  resize: none;
+  border-radius: 7px;
+  border: 1px solid var(--gold-soft);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  padding: 7px 9px;
+  font: inherit;
+  outline: none;
+}
+
+#composer-input:focus {
+  border-color: var(--gold);
+}
+
+#composer-hint {
+  margin-top: 5px;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+kbd {
+  border: 1px solid var(--gold-soft);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--ink-dim);
+}
+
+/* --------------------------------------------------------------- footer -- */
+
+#board-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-top: 1px solid rgba(200, 164, 92, 0.18);
+  color: var(--ink-faint);
+  font-size: 10.5px;
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#board-status {
+  margin-left: auto;
+  color: var(--gold);
+}
