@@ -13,6 +13,7 @@ each (session, kind) pair has a cooldown so a flapping session cannot spam.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
@@ -28,13 +29,14 @@ STATE_PATH = state_module.STATE_DIR / "notify-state.json"
 KIND_LABELS = {
     "needs": "needs you",
     "error": "hit an error",
+    "finished": "finished",
 }
 
 # Which transition is worth interrupting for when a pass finds more of them than
 # the cap allows. `needs` is the actionable one; an error is worth seeing too. The
 # cap used to take an arbitrary three, because every event in a pass carries the
 # same timestamp and the sort key was that timestamp.
-KIND_RANK = {"needs": 0, "error": 1}
+KIND_RANK = {"needs": 0, "error": 1, "finished": 2}
 
 # One notification per (session, kind) per window. Long enough that a session
 # oscillating between working and needs-you cannot machine-gun the user.
@@ -45,8 +47,13 @@ MAX_PER_PASS = 3
 def load_state(path: Path | None = None) -> dict:
     path = path or STATE_PATH
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or not isinstance(value.get("known", {}), dict) or not isinstance(value.get("notified", {}), dict):
+            return {"known": {}, "notified": {}}
+        value["notified"] = {key: stamp for key, stamp in value.get("notified", {}).items()
+                             if isinstance(stamp, (int, float)) and 0 <= stamp < float("inf")}
+        return value
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return {"known": {}, "notified": {}}
 
 
@@ -57,12 +64,33 @@ def save_state(state: dict, path: Path | None = None) -> None:
     state_module.atomic_write(target, json.dumps(state, indent=2, sort_keys=True))
 
 
+def session_key(session: dict) -> str:
+    host = str(session.get("host") or "local")
+    sid = str(session.get("id") or "")
+    return sid if host == "local" else f"{host}/{sid}"
+
+
+def event_kind(session: dict, previous: dict[str, str]) -> str | None:
+    if session.get("host_offline") or session.get("dismissed"):
+        return None
+    status = str(session.get("status", ""))
+    before = previous.get(session_key(session))
+    if before == status:
+        return None
+    if status in ("needs", "error"):
+        return status
+    if before in ("working", "waiting") and status in ("reply", "idle", "finished"):
+        return "finished"
+    return None
+
+
 def detect(
     sessions: Iterable[dict],
     *,
     previous: dict[str, str],
     seeded: bool,
     now: float | None = None,
+    limit: int | None = MAX_PER_PASS,
 ) -> list[dict]:
     """Transitions worth telling someone about.
 
@@ -75,17 +103,15 @@ def detect(
     for session in sessions:
         status = str(session.get("status", ""))
         session_id = str(session.get("id", ""))
-        if not session_id or status not in KIND_LABELS:
-            continue
-        if previous.get(session_id) == status:
-            continue
-        if not seeded:
+        kind = event_kind(session, previous)
+        if not session_id or not kind or not seeded:
             continue
 
         events.append(
             {
                 "id": session_id,
-                "kind": status,
+                "kind": kind,
+                "key": session_key(session),
                 "title": str(session.get("title", "")),
                 "project": str(session.get("project", "")),
                 "detail": str(session.get("preview", ""))[:160],
@@ -97,7 +123,7 @@ def detect(
     # Loudest first, then longest-waiting: an arbitrary three of a five-item burst
     # is a coin flip, and the player never learns about the other two.
     events.sort(key=lambda event: (KIND_RANK.get(event["kind"], 9), event["at"]))
-    return events[:MAX_PER_PASS]
+    return events if limit is None else events[:limit]
 
 
 def _cooled(state: dict, events: list[dict], now: float) -> list[dict]:
@@ -108,7 +134,7 @@ def _cooled(state: dict, events: list[dict], now: float) -> list[dict]:
     kept: list[dict] = []
 
     for event in events:
-        key = f"{event['id']}:{event['kind']}"
+        key = f"{event.get('key', event['id'])}:{event['kind']}"
         # "Never notified" is not the same as "notified at time zero": comparing
         # against 0 silences everything whenever the clock is small, which is how
         # this hid from a test written with a toy timestamp.
@@ -124,7 +150,7 @@ def _stamp_cooled(state: dict, events: Iterable[dict], now: float) -> None:
     """Consume the cooldown for the events that actually reached a channel."""
     notified = state.setdefault("notified", {})
     for event in events:
-        notified[f"{event['id']}:{event['kind']}"] = now
+        notified[f"{event.get('key', event['id'])}:{event['kind']}"] = now
     prune(notified)
 
 
@@ -154,19 +180,19 @@ def notify_desktop(event: dict) -> dict:
         try:
             done = subprocess.run(command, check=False, timeout=5, capture_output=True)
         except (OSError, subprocess.SubprocessError) as exc:
-            return {"channel": "desktop", "event": event["id"], "sent": False, "error": str(exc)}
+            return {"channel": "desktop", "event": event.get("key", event["id"]), "sent": False, "error": str(exc)}
 
         if done.returncode != 0:
             detail = (done.stderr or b"").decode("utf-8", "replace").strip()[:200]
             return {
                 "channel": "desktop",
-                "event": event["id"],
+                "event": event.get("key", event["id"]),
                 "sent": False,
                 "error": detail or f"notify-send exited {done.returncode}",
             }
-        return {"channel": "desktop", "event": event["id"], "sent": True}
+        return {"channel": "desktop", "event": event.get("key", event["id"]), "sent": True}
 
-    return {"channel": "desktop", "event": event["id"], "sent": False, "error": "no notify-send"}
+    return {"channel": "desktop", "event": event.get("key", event["id"]), "sent": False, "error": "no notify-send"}
 
 
 def notify_hermes(event: dict, *, platform: str, hermes_bin: str = "hermes") -> dict:
@@ -180,16 +206,16 @@ def notify_hermes(event: dict, *, platform: str, hermes_bin: str = "hermes") -> 
             text=True,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"channel": f"hermes:{platform}", "event": event["id"], "sent": False, "error": str(exc)}
+        return {"channel": f"hermes:{platform}", "event": event.get("key", event["id"]), "sent": False, "error": str(exc)}
 
     if proc.returncode != 0:
         return {
             "channel": f"hermes:{platform}",
-            "event": event["id"],
+            "event": event.get("key", event["id"]),
             "sent": False,
             "error": (proc.stderr or proc.stdout or "").strip()[:200],
         }
-    return {"channel": f"hermes:{platform}", "event": event["id"], "sent": True}
+    return {"channel": f"hermes:{platform}", "event": event.get("key", event["id"]), "sent": True}
 
 
 def dispatch(
@@ -224,7 +250,7 @@ def dispatch(
 
     for event in allowed:
         if dry_run:
-            results.append({"channel": "dry-run", "event": event["id"], "sent": True, "line": _headline(event)})
+            results.append({"channel": "dry-run", "event": event.get("key", event["id"]), "sent": True, "line": _headline(event)})
             continue
 
         reached = False
@@ -258,8 +284,8 @@ def remember(sessions: Iterable[dict], state: dict, only: Iterable[str] | None =
     allowed = {str(item) for item in only} if only is not None else None
 
     for session in sessions:
-        session_id = session.get("id")
-        if not session_id:
+        session_id = session_key(session)
+        if not session.get("id") or session.get("host_offline"):
             continue
         if allowed is None or str(session_id) in allowed:
             known[str(session_id)] = str(session.get("status"))
@@ -285,8 +311,15 @@ def transitions(
     """
     owned = state is None
     state = state if state is not None else load_state()
+    if dry_run:
+        state = copy.deepcopy(state)
     seeded = bool(state.get("seeded"))
-    events = detect(sessions, previous=state.get("known", {}), seeded=seeded, now=now)
+    stamp = now if now is not None else time.time()
+    previous = dict(state.get("known", {}))
+    candidates = detect(sessions, previous=previous, seeded=seeded, now=stamp, limit=None)
+    # Cooldowns are applied before the burst cap, or a flapping row can starve
+    # an unrelated session which has never been reported.
+    events = _cooled(state, candidates, stamp)[:MAX_PER_PASS]
     results = dispatch(
         events, desktop=desktop, platforms=platforms, dry_run=dry_run, state=state, now=now, persist=owned
     ) if events else []
@@ -297,7 +330,11 @@ def transitions(
         remember(sessions, state)
     else:
         reported = {str(item.get("event")) for item in results if item.get("sent")}
-        remember(sessions, state, only=reported)
+        pending = {event["key"] for event in candidates}
+        # Quiet transitions establish the next baseline too. Only actionable
+        # events awaiting delivery keep the old one, so overflow can retry.
+        remember(sessions, state, only=reported | {session_key(row) for row in sessions
+                                                  if session_key(row) not in pending})
 
     if owned and not dry_run:
         save_state(state)

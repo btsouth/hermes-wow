@@ -156,6 +156,52 @@ def test_a_delivered_channel_keeps_its_cooldown_when_another_fails():
     check("the delivered channel counted", any(item.get("sent") for item in first), str(first))
     check("...so the same alert is not re-sent seconds later", second == [], str(second))
 
+def test_transition_history_and_completion():
+    original = notify.notify_desktop
+    notify.notify_desktop = lambda event: {"event": event.get("key", event["id"]), "sent": True}
+    try:
+        state = {"known": {}, "notified": {}}
+        notify.transitions([session("s", "needs")], state=state, now=10)
+        notify.transitions([session("s", "working")], state=state, now=20)
+        renewed = notify.transitions([session("s", "needs")], state=state, now=30)
+        check("quiet transitions allow the next request for attention", len(renewed["results"]) == 1)
+        notify.transitions([session("s", "working")], state=state, now=40)
+        done = notify.transitions([session("s", "reply")], state=state, now=50)
+        check("a working session producing output reports completion", [e["kind"] for e in done["events"]] == ["finished"])
+        again = notify.transitions([session("s", "reply")], state=state, now=60)
+        check("completed state is not repeatedly announced", not again["events"])
+        before = json.dumps(state, sort_keys=True)
+        notify.transitions([session("s", "error")], state=state, now=70, dry_run=True)
+        check("a transition dry run leaves all caller state unchanged", json.dumps(state, sort_keys=True) == before)
+        offline = dict(session("s", "error"), host_offline=True)
+        result = notify.transitions([offline], state=state, now=80)
+        check("an offline cached row never notifies or replaces its baseline", not result["events"] and state["known"]["s"] == "reply")
+        rows = [dict(session("shared", "needs"), host=host) for host in ("local", "other")]
+        first = notify.transitions(rows, state=state, now=90)
+        check("same id on different hosts has independent notifications", len(first["results"]) == 2)
+        check("host-qualified cooldowns are separate", "shared:needs" in state["notified"] and "other/shared:needs" in state["notified"])
+        # Three cooling rows must not consume the three available delivery slots.
+        cooling = {"known": {}, "notified": {f"s{i}:needs": 90 for i in range(3)}, "seeded": True}
+        burst = notify.transitions([session(f"s{i}", "needs") for i in range(4)], state=cooling, now=100)
+        check("cooling rows cannot starve an unrelated alert", [e["id"] for e in burst["events"]] == ["s3"])
+        finished = notify.detect([session("old", "finished")], previous={}, seeded=True)
+        check("an unseen old finished session is not new completion", not finished)
+    finally:
+        notify.notify_desktop = original
+
+
+def test_corrupt_state_is_silent():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "state.json"
+        path.write_bytes(b"\xff")
+        check("invalid UTF-8 ledger seeds silently", notify.load_state(path) == {"known": {}, "notified": {}})
+        for raw in ('[]', '{"known": []}', '{"notified": []}', '{"notified": {"s:needs": "bad"}}'):
+            path.write_text(raw)
+            state = notify.load_state(path)
+            outcome = notify.transitions([session("s", "needs")], state=state, dry_run=True)
+            check("malformed notification state seeds silently: " + raw, not outcome["events"])
+
+
 def main() -> int:
     # Never write the player's real ledger from a gate.
     original_state = notify.STATE_PATH
@@ -169,6 +215,8 @@ def main() -> int:
 
 
 def _main() -> int:
+    test_transition_history_and_completion()
+    test_corrupt_state_is_silent()
     test_a_failed_send_keeps_its_cooldown()
     test_the_cap_spends_itself_on_the_loudest()
     test_the_cooldown_is_the_documented_window()
