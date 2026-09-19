@@ -123,6 +123,24 @@ Rules the merge keeps:
 - a reply to a remote row is routed back to that host over ssh, not into the
   local backend
 
+## What has been tested, and what has not
+
+The panel has been played on **one machine, one client build, one configuration:
+1440p with the game's own `Use UI Scale` checkbox left off** (so the client's
+default scale for the display). That last part is worth knowing rather than
+burying, because this UI is *measured* rather than guessed — text is fitted with
+`GetStringWidth` and the geometry is in pixels at a 1.0 scale — and a non-default
+UI scale or a much smaller or larger display is the most likely place for a layout
+problem to still be hiding. The gates are offline and structurally cannot see it:
+they prove the logic, not the pixels.
+
+**English only.** The locale indirection is real — `Locale.lua`, and the release
+lint fails on a hard-coded user-facing string — but no translation files ship.
+
+Not verified at all: multiple accounts, a fresh install with no historical
+SavedVariables, other clients in the Classic family, and every addon that touches
+the minimap at the same time.
+
 ## Development
 
 ```
@@ -134,6 +152,14 @@ make install      # copy the addon into the client and publish
 Layout: `addon/HermesAI/` is five Lua files loaded in toc order (`Locale`, `Data`,
 `Payload`, `Core`, `UI`); `wowmode/` is the bridge; `tests/` holds the gates;
 `docs/design/` holds the reasoning.
+
+Also worth knowing:
+
+| Target | What it is for |
+| --- | --- |
+| `make package` | the release zip, into `dist/` |
+| `make icon MASTER=…` | turns generated art into the shipped `icon.tga` and wires the toc — see `docs/design/icon-art.md` for the palette and the prompts |
+| `make interface IFACE=…` | moves the interface pin to a new client build, in both places it is written down |
 
 The gates exist because the two failure modes that matter here are both offline:
 a Lua API the client rejects, and a payload format the two halves disagree about.

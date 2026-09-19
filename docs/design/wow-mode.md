@@ -106,6 +106,20 @@ Two surfaces, each doing what it is actually good at.
 
 - Interface number is pinned at `16001`, confirmed against the client:
   `/run print(GetBuildInfo())` returned `1.60.1 69913 Sep 17 2026 16001`.
+
+  The pin is the build the addon was last *tested* against, and it is deliberately
+  the beta this project is developed against rather than the newest number anyone
+  has seen. A client with a newer build shows the addon as out of date until the
+  pin moves, and moving it is one command from that build line:
+  `make interface IFACE=<the last number>`. That rewrites the toc and the lint's
+  expected value together, because those two drifting apart is the entire failure
+  mode - `tests/addon_checks.py` holds the number separately on purpose, since a
+  lint that read the toc would be checking it against itself.
+
+  If this ever targets more than one client family, the mechanism is a per-flavour
+  toc (`HermesAI_Vanilla.toc`, `HermesAI_Mainline.toc`, ...) with `HermesAI.toc` as
+  the fallback. A single wider pin would be claiming support on clients the addon
+  has never run on.
 - Refreshing on loading screens is **on** by default (`opportunistic` in the
   settings pane). `/hermesai opportunistic` turns it off. When it is on it spends
   a UI reload only at a moment the player was already waiting - landing in a new

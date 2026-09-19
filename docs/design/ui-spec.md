@@ -202,9 +202,18 @@ rather than a hole), font objects. Every addon does this.
 
 The panel is written and lint-clean, and the stub suite exercises every path
 (tabs, search, detail, composer, settings, minimap, collapse, scrolling), but a
-browser and a Lua stub are not the client. First-load items to look at with human
-eyes: frame strata against other addons, text at an unfamiliar UI scale, the
-minimap button's angle next to the other minimap buttons, and whether the badge's
+browser and a Lua stub are not the client.
+
+One configuration has been played on: **1440p, with the game's `Use UI Scale`
+checkbox off** (the client's default scale for the display). Everything here is
+measured rather than guessed — `fitText` measures with `GetStringWidth`, the
+geometry is in pixels at that scale — so an unfamiliar UI scale is the first place
+a layout defect would still be hiding, and it is the item no offline gate can
+reach.
+
+First-load items to look at with human eyes: frame strata against other addons,
+text at a non-default UI scale or on a much smaller display, the minimap button
+against other minimap addons (several hook the same ring), and whether the badge's
 `MEDIUM` strata sits above the player frame in a raid.
 
 ## Open questions this spec does not settle

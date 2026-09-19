@@ -31,9 +31,13 @@ ADDON_NAME = "HermesAI"
 DEFAULT_ADDON = ROOT / "addon" / ADDON_NAME
 CHANGELOG = ROOT / "CHANGELOG.md"
 
-# The client loads this even though the toc does not list it, which is why the
-# toc should not list it either: naming it there loads it twice.
+# The client loads this by name even though the toc does not list it, which is why
+# the toc should not list it either: naming it there loads it twice.
 AUTO_LOADED = ("Bindings.xml",)
+
+# Read by name too, but only once `make icon` has produced them: the addon-list
+# icon and its large twin for store pages.
+EXTRA_IF_PRESENT = ("icon.tga", "icon-128.png")
 
 
 class PackagingError(RuntimeError):
@@ -78,16 +82,21 @@ def changelog_version() -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
-def manifest(addon_dir: Path) -> list[Path]:
-    """Every file the release carries, in toc order."""
+def packaged_names(addon_dir: Path) -> list[str]:
+    """The file names the release carries, in the order it carries them."""
     toc = addon_dir / f"{ADDON_NAME}.toc"
     names = [toc.name, *toc_listed_files(read(toc)), *AUTO_LOADED]
+    names.extend(name for name in EXTRA_IF_PRESENT if (addon_dir / name).is_file())
+    return names
 
+
+def manifest(addon_dir: Path) -> list[Path]:
+    """Every file the release carries, as paths."""
     files: list[Path] = []
-    for name in names:
+    for name in packaged_names(addon_dir):
         path = addon_dir / name
         if not path.is_file():
-            raise PackagingError(f"the toc names {name}, which is not in {addon_dir}")
+            raise PackagingError(f"{name} is required by the release but missing from {addon_dir}")
         files.append(path)
     return files
 

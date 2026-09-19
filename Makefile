@@ -16,7 +16,7 @@ ADDON ?= /mnt/data/Games/World of Warcraft/_classic_beta_/Interface/AddOns
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check check-lua check-python install publish package preview lint clean
+.PHONY: help check check-lua check-python install publish package icon banner interface preview lint clean
 
 help: ## Show the targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -48,6 +48,18 @@ publish: ## Refresh the snapshot in the client without touching the code
 
 package: ## Build the release zip into dist/ (refuses an unrecorded or unempty release)
 	$(PY) scripts/package_addon.py
+
+icon: ## Turn generated art into the addon icon (make icon MASTER=~/Downloads/emblem.png)
+	@test -n "$(MASTER)" || { echo "usage: make icon MASTER=path/to/emblem.png  (512px or larger, transparent)"; exit 1; }
+	$(PY) scripts/make_icon.py "$(MASTER)"
+
+banner: ## Composite the wordmark onto a generated banner (make banner MASTER=...)
+	@test -n "$(MASTER)" || { echo "usage: make banner MASTER=path/to/banner.png"; exit 1; }
+	$(PY) scripts/make_icon.py --banner "$(MASTER)"
+
+interface: ## Move the interface pin to a new client build (make interface IFACE=16002)
+	@test -n "$(IFACE)" || { echo "usage: make interface IFACE=16002  (from /run print(GetBuildInfo()) in game)"; exit 1; }
+	$(PY) scripts/bump_interface.py "$(IFACE)"
 
 preview: ## Render the panel against the live roster into docs/panel-preview.html
 	$(PY) scripts/panel_preview.py

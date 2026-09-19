@@ -62,10 +62,8 @@ with tempfile.TemporaryDirectory() as tmp:
         check("the toc is at the root of that folder",
               f"{package_addon.ADDON_NAME}/{package_addon.ADDON_NAME}.toc" in names, str(sorted(names)[:4]))
 
-        listed = package_addon.toc_listed_files(package_addon.read(ADDON / "HermesAI.toc"))
-        expected = {f"{package_addon.ADDON_NAME}/{name}" for name in [*listed, *package_addon.AUTO_LOADED]}
-        expected.add(f"{package_addon.ADDON_NAME}/HermesAI.toc")
-        check("it carries the toc, what the toc lists, and Bindings.xml - nothing else",
+        expected = {f"{package_addon.ADDON_NAME}/{name}" for name in package_addon.packaged_names(ADDON)}
+        check("it carries the toc, what it lists, and what the client loads by name - nothing else",
               set(names) == expected,
               "extra: " + ", ".join(sorted(set(names) - expected))
               + " missing: " + ", ".join(sorted(expected - set(names))))
