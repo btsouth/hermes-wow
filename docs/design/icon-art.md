@@ -38,6 +38,23 @@ back up with nearest-neighbour so the pixels are visible:
 magick emblem.png -resize 32x32 -filter point -resize 256x256 check.png
 ```
 
+**Check the alpha channel, not the preview.** Every image viewer draws transparency
+as a grey checkerboard, so a genuinely transparent export and a *painted* one look
+identical on screen. Of the three exports of this emblem, two were real — mode
+`RGBA`, alpha running 0 to 255 — and one was not: mode `RGB`, no alpha channel at
+all, with the checkerboard drawn in as ~340 shades of grey. That one would have put
+a grey grid in the corners of the addon-list icon.
+
+```bash
+python3 -c "from PIL import Image; i = Image.open('emblem.png'); print(i.mode, i.convert('RGBA').getchannel('A').getextrema())"
+```
+
+`RGBA (0, 255)` is real transparency. `RGB (255, 255)` is not — ask again and use
+the words "transparent background with an alpha channel", because the caption is not
+the file. Don't plan on cutting it out afterwards: on the pass this happened, 11% of
+the pixels strictly inside the artwork matched the backdrop's colour signature, so
+an automatic cut would have eaten into the plate.
+
 The first pass of this emblem looked right at 64 and turned its wings into a jagged
 blob glued to the H's stem at 32. The failure mode is always the same: fine detail
 that reads at preview size and becomes noise at the size the client actually draws.
