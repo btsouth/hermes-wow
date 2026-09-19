@@ -21,6 +21,8 @@ Run:
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -37,24 +39,50 @@ DEFAULT_ADDON = ROOT / "addon" / ADDON_NAME
 ICON_SIZE = 64
 ICON_LARGE = 128
 
-# The wordmark is drawn, not generated. Any of these will do; the first that
-# exists wins, and a missing font is a cosmetic problem rather than a crash.
-FONT_CANDIDATES = (
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+# The wordmark is drawn in a real font, not generated. A hardcoded list of paths
+# is how this first went wrong: none of the likely ones existed on this machine,
+# Pillow fell back to its ~11px bitmap font, and the banner shipped with an
+# unreadable smear where the name should be. So ask the system what it uses, then
+# look, and say so loudly if neither works.
+FONT_PATTERNS = (
+    "/usr/share/fonts/**/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/**/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/**/NotoSans-Bold.ttf",
+    "/usr/share/fonts/**/*Bold*.ttf",
 )
 
 TEXT_COLOR = (232, 237, 247)  # TEXT from the UI palette
 SHADOW_COLOR = (13, 18, 32)  # the panel's navy, for the wordmark's shadow
 
 
-def load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    for candidate in FONT_CANDIDATES:
-        if Path(candidate).is_file():
-            return ImageFont.truetype(candidate, size)
-    return ImageFont.load_default()
+def find_font(explicit: str | None = None) -> Path | None:
+    """A bold sans to draw the wordmark in, or None if this machine has none."""
+    if explicit:
+        path = Path(explicit).expanduser()
+        return path if path.is_file() else None
+
+    matched = shutil.which("fc-match")
+    if matched:
+        probe = subprocess.run([matched, "-f", "%{file}", "sans-serif:bold"],
+                               capture_output=True, text=True)
+        candidate = Path(probe.stdout.strip())
+        if candidate.is_file() and candidate.suffix.lower() in (".ttf", ".otf", ".ttc"):
+            return candidate
+
+    for pattern in FONT_PATTERNS:
+        for candidate in sorted(Path("/").glob(pattern.lstrip("/"))):
+            return candidate
+    return None
+
+
+def load_font(size: int, explicit: str | None = None) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    path = find_font(explicit)
+    if path is None:
+        print("warning: no TrueType font found, so the wordmark will be a tiny bitmap.\n"
+              "         install one (fonts-liberation, dejavu-sans) or pass --font <path>",
+              file=sys.stderr)
+        return ImageFont.load_default()
+    return ImageFont.truetype(str(path), size)
 
 
 def prepare(image: Image.Image, crop: bool = True) -> Image.Image:
@@ -124,19 +152,27 @@ def wire_toc(addon_dir: Path) -> bool:
     return True
 
 
-def write_banner(master: Path, out: Path, text: str) -> Path:
+def write_banner(master: Path, out: Path, text: str, font_path: str | None = None) -> Path:
     """Composite the wordmark. Real letters, real font, no model lettering."""
     image = Image.open(master).convert("RGBA")
     draw = ImageDraw.Draw(image)
 
     # Sized to the image rather than fixed, so the same call works for a 1280x640
     # social card and anything else roughly banner-shaped.
-    size = max(24, int(image.height * 0.16))
-    font = load_font(size)
-    left = int(image.width * 0.06)
-    top = int(image.height * 0.66)
+    size = max(24, int(image.height * 0.14))
+    font = load_font(size, font_path)
 
-    draw.text((left + 2, top + 2), text, font=font, fill=SHADOW_COLOR)
+    # Bottom-left, under the emblem. The left third is where the art is and the
+    # right two thirds hold the row bars, so this is the clear space in either
+    # master. Measured rather than guessed: the first attempt placed it at a fixed
+    # 66% of the height and ran it straight through the plate.
+    box = draw.textbbox((0, 0), text, font=font)
+    text_height = box[3] - box[1]
+    left = int(image.width * 0.06)
+    top = image.height - int(image.height * 0.06) - text_height - box[1]
+
+    offset = max(1, size // 40)
+    draw.text((left + offset, top + offset), text, font=font, fill=SHADOW_COLOR)
     draw.text((left, top), text, font=font, fill=TEXT_COLOR)
 
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -153,6 +189,7 @@ def main() -> int:
     parser.add_argument("--out", default=str(ROOT / "dist" / "banner.png"), help="--banner output path")
     parser.add_argument("--no-crop", action="store_true",
                         help="keep the master's own framing instead of trimming to the art")
+    parser.add_argument("--font", default=None, help="a TrueType file for the --banner wordmark")
     args = parser.parse_args()
 
     master = Path(args.master).expanduser()
@@ -161,7 +198,7 @@ def main() -> int:
         return 1
 
     if args.banner:
-        written = write_banner(master, Path(args.out), args.text)
+        written = write_banner(master, Path(args.out), args.text, args.font)
         print(f"banner with the wordmark {args.text!r} -> {written}")
         return 0
 

@@ -44,6 +44,21 @@ that reads at preview size and becomes noise at the size the client actually dra
 The fix is never "make it smaller" — it is negative space around the detail, or
 removing it. One clear shape beats two that blur together.
 
+Measured on the second and third passes, because the numbers say what the eye
+cannot at 32px. A shape needs about 2px to survive there, which is 6% of the icon's
+height:
+
+| Element | In the 1030px plate | At 32px | Verdict |
+| --- | --- | --- | --- |
+| the H | 688px tall (67%) | 21px | reads perfectly |
+| each wing | ~110px thick (11%) | 3.5px | thick enough |
+| the gap between the wings | 30px (2.9%) | 1px | **merges them into one lump** |
+
+So the wings were never the problem — the space between them was. A revision that
+squarely hit the brief would either widen that gap to ~90px (3px at 32) or use a
+single chevron. Worth knowing before spending a pass making the shapes bolder, which
+would have changed nothing.
+
 ## 1. The emblem — the one that matters
 
 **Prompt (copy this whole block):**
