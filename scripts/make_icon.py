@@ -57,9 +57,39 @@ def load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def write_icon(addon_dir: Path, master: Path) -> list[Path]:
+def prepare(image: Image.Image, crop: bool = True) -> Image.Image:
+    """The framed square to draw from: cut to the art, centred.
+
+    A model asked for a 512 icon returns a bigger canvas with the art inset by
+    whatever margin it felt like - 8% here. Left alone, that margin survives the
+    resize and the icon the client draws at 32px is a third smaller than the space
+    it was given. Blizzard's own icons are full bleed, so trim to the art and pad
+    back to a centred square, which also keeps a lopsided composition centred.
+    """
+    if not crop:
+        return image
+
+    box = image.getbbox()
+    if not box:
+        return image
+
+    art = image.crop(box)
+    side = max(art.size)
+    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    square.paste(art, ((side - art.width) // 2, (side - art.height) // 2), art)
+    return square
+
+
+def write_icon(addon_dir: Path, master: Path, crop: bool = True) -> list[Path]:
     """The addon-list icon, at the two sizes worth keeping."""
     image = Image.open(master).convert("RGBA")
+
+    # Said out loud rather than left to be discovered in the addon list: a master
+    # without an alpha channel gives a solid square behind a rounded plate.
+    if image.getchannel("A").getextrema() == (255, 255):
+        print("note: this master has no transparency - the icon will be a solid square")
+
+    image = prepare(image, crop)
 
     written: list[Path] = []
     small = addon_dir / "icon.tga"
@@ -121,6 +151,8 @@ def main() -> int:
     parser.add_argument("--banner", action="store_true", help="compose a banner instead of an icon")
     parser.add_argument("--text", default="HermesAI", help="the wordmark for --banner")
     parser.add_argument("--out", default=str(ROOT / "dist" / "banner.png"), help="--banner output path")
+    parser.add_argument("--no-crop", action="store_true",
+                        help="keep the master's own framing instead of trimming to the art")
     args = parser.parse_args()
 
     master = Path(args.master).expanduser()
@@ -138,7 +170,7 @@ def main() -> int:
         print(f"no such addon folder: {addon_dir}", file=sys.stderr)
         return 1
 
-    for path in write_icon(addon_dir, master):
+    for path in write_icon(addon_dir, master, crop=not args.no_crop):
         print(f"wrote {path}")
 
     if wire_toc(addon_dir):

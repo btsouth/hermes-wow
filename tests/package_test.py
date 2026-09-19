@@ -15,6 +15,7 @@ Run: python3 tests/package_test.py
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -110,11 +111,14 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         package_addon.CHANGELOG = original_changelog
 
+    # Copied as bytes: the addon folder is no longer all text (it carries
+    # `icon.tga` once there is art), and reading a texture as UTF-8 is a crash in
+    # the fixture rather than a finding about the product.
     leaky = Path(tmp) / "leaky"
     leaky.mkdir()
     for item in sorted(ADDON.iterdir()):
         if item.is_file():
-            (leaky / item.name).write_text(package_addon.read(item), encoding="utf-8")
+            shutil.copy2(item, leaky / item.name)
     (leaky / "Data.lua").write_text(
         'HermesAIData = "HE1|bridge=0.5.0|schema=2|generated=1|rows=1|acked=0|hosts=local:ok|new="\n',
         encoding="utf-8",
