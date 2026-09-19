@@ -37,6 +37,7 @@ jobs:
           python3 tests/hosts_test.py
           python3 tests/addon_checks.py
           python3 tests/package_test.py
+          python3 tests/preview_test.py
           python3 tests/notify_test.py
 
       - name: The release zip is what the client and an installer want

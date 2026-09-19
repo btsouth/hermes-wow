@@ -117,9 +117,30 @@ lettering, which is the fastest way to make a release look amateurish.
 (If you are starting cold, describe it from prompt 1 instead — but expect a
 different H.)
 
-## 3. The social preview banner — 1280×640, no text
+## 3. The social preview banner — 1280×640
 
-GitHub's repo social preview and most store headers. **Prompt:**
+**The shipped banner is not generated at all.** `make banner` composes it from
+parts that are all the product:
+
+| Layer | Where it comes from |
+| --- | --- |
+| background | drawn in code — navy with an accent glow, dithered so it cannot band |
+| emblem | `docs/art/emblem.png`, the same art the icon comes from |
+| panel | the addon's own panel, rendered by `panel_preview.py --demo` against a made-up roster |
+| wordmark | a real font, via the same resolver the icon pipeline uses |
+
+The panel is the point. A screenshot of the real board would show your session
+titles and project names — the renderer uses a made-up roster instead, reads its
+palette out of `UI.lua` so it cannot drift from the real thing, and produces a
+picture that looks like the game without containing anyone's work.
+
+The prompt below is kept for the alternative: an **art-led background with no
+product shot on it**. It is what was used first, and a textless abstract banner is
+a legitimate choice for a project that would rather not show a screenshot. If you
+use it, it needs no wordmark from the model — `make banner` would have to be pointed
+at it instead, which is a change to one constant in `make_banner.py`.
+
+**Prompt, for that alternative:**
 
 > A wide 1280 by 640 composition, fully opaque, deep navy `#0D1220` background
 > with a faint accent-blue `#2F6BD8` glow in the lower left. The gold emblem from

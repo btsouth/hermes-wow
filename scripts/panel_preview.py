@@ -15,6 +15,7 @@ Run: python3 scripts/panel_preview.py [output.html]
 
 from __future__ import annotations
 
+import argparse
 import html
 import json
 import re
@@ -103,6 +104,19 @@ TABS = [
 ROW_COUNT = 12
 SEP = " \u00b7 "
 
+# The words the addon puts on each status (Core.lua, STATUS_LABELS). A roster
+# supplies them; the made-up one has to be told, or every row reads "reply" where
+# the panel says "New reply".
+STATUS_LABELS = {
+    "needs": "Needs you",
+    "error": "Error",
+    "working": "Working",
+    "waiting": "Waiting",
+    "reply": "New reply",
+    "idle": "Idle",
+    "finished": "Finished",
+}
+
 
 def age_phrase(seconds) -> str:
     """"just now", not "now ago"."""
@@ -144,9 +158,16 @@ def new_label(seconds) -> str:
     return age_label(seconds) + " ago"
 
 
-def row_meta(session: dict, offline: bool = False) -> str:
-    """The row's second line: status, where it lives, what it is doing."""
-    parts = [session.get("status_label") or session["status"]]
+def row_meta_parts(session: dict, offline: bool = False) -> tuple[str, str]:
+    """The row's second line in two pieces: the status word, and the trail.
+
+    Split because the addon draws them differently — the word in its status colour
+    and the trail muted — so a preview that paints the whole line in one colour
+    looks louder than the panel it is supposed to be previewing.
+    """
+    word = session.get("status_label") or STATUS_LABELS.get(session["status"], session["status"])
+
+    parts = []
     trail = session["host"] if session.get("host") not in (None, "", "local") else session.get("profile")
     if trail:
         parts.append(trail)
@@ -156,7 +177,13 @@ def row_meta(session: dict, offline: bool = False) -> str:
         parts.append("host offline")
     elif session.get("activity"):
         parts.append(session["activity"])
-    return SEP.join(parts)
+    return word, SEP.join(parts)
+
+
+def row_meta(session: dict, offline: bool = False) -> str:
+    """The whole line as one string, for anything that wants it in one piece."""
+    word, trail = row_meta_parts(session, offline)
+    return word + SEP + trail if trail else word
 
 
 def is_offline(session: dict, offline_hosts: set[str]) -> bool:
@@ -170,12 +197,14 @@ def is_offline(session: dict, offline_hosts: set[str]) -> bool:
 def render_row(session: dict, index: int, *, offline: bool = False) -> str:
     color = COLORS.get(session["status"], COLORS["idle"])
     title_color = DIM if offline else TEXT
+    word, trail = row_meta_parts(session, offline)
     return f"""
         <div class="row" style="background:{ROW_ALT if index % 2 == 0 else ROW}">
           <i class="dot" style="background:{color};opacity:{0.45 if offline else 1}"></i>
           <div class="body">
             <div class="title" style="color:{title_color}">{html.escape(session['title'] or '')}</div>
-            <div class="meta" style="color:{color}">{html.escape(row_meta(session, offline))}</div>
+            <div class="meta"><span style="color:{color}">{html.escape(word)}</span>{
+                f'<span style="color:{MUTED}">{html.escape(SEP + trail)}</span>' if trail else ''}</div>
           </div>
           <div class="age">{age_label(session['age_s'])}</div>
           <div class="chev">&gt;</div>
@@ -301,14 +330,85 @@ def render_panel(data: dict, *, mode: str) -> str:
     </div>"""
 
 
-def render(data: dict, *, now: float) -> str:
-    sessions = data.get("sessions", [])
-    generated = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
-    attention = data.get("attention", 0)
+# A made-up roster, for anything that needs a panel picture without a panel's worth
+# of somebody's real work in it: store pages, the banner, docs. Deliberately generic
+# and deliberately not derived from a live store - a screenshot of this looks like
+# the product and contains nothing that belongs to anyone.
+DEMO_SESSIONS = [
+    dict(id="20260919_101500_a1b2c3", host="local", profile="default", project="billing-service",
+         status="needs", title="Review the migration plan for the billing service",
+         age_s=300, messages=24, cost_usd=1.87, activity="asking which migration window to use",
+         preview="Two windows would work. Saturday 02:00 UTC needs the read replicas drained first; "
+                 "Sunday 03:00 UTC does not, but it overlaps the invoice run."),
+    dict(id="20260919_100240_d4e5f6", host="local", profile="default", project="scheduler",
+         status="working", title="Trace the flaky test in the scheduler",
+         age_s=720, messages=41, cost_usd=2.40, activity="running the suite under load",
+         preview="Reproduced twice in fifty runs, both times with the clock mocked forward."),
+    dict(id="20260919_095512_g7h8i9", host="local", profile="default", project="docs-site",
+         status="reply", title="Draft the release notes for 2.1",
+         age_s=1500, messages=18, cost_usd=0.94, activity="",
+         preview="First pass is up. I left the breaking change at the top and cut the two internal refactors."),
+    dict(id="20260919_094108_j1k2l3", host="terra", profile="work", project="uploader",
+         status="needs", title="Audit the retry logic in the uploader",
+         age_s=2400, messages=33, cost_usd=1.62, activity="waiting on your answer",
+         preview="Three retries back off linearly and the fourth does not back off at all. Is that intended?"),
+    dict(id="20260919_093355_m4n5o6", host="local", profile="default", project="reports",
+         status="needs", title="Investigate the slow query on the reports page",
+         age_s=3600, messages=52, cost_usd=3.05, activity="comparing two query plans",
+         preview="The index is used for the filter and ignored for the sort, so every page load sorts "
+                 "the whole table."),
+    dict(id="20260919_092730_p7q8r9", host="local", profile="default", project="infra",
+         status="reply", title="Check the CDN cache headers for the docs site",
+         age_s=5400, messages=12, cost_usd=0.31, activity="",
+         preview="HTML is cached for five minutes and assets for a year, which is backwards for a site "
+                 "that redeploys its assets in place."),
+    dict(id="20260919_091200_s1t2u3", host="local", profile="default", project="cli",
+         status="needs", title="Write the onboarding guide for the command line tool",
+         age_s=7200, messages=27, cost_usd=1.20, activity="asking what to assume",
+         preview="Do you want me to assume Homebrew, or cover the manual install as well?"),
+    dict(id="20260919_085540_v4w5x6", host="terra", profile="work", project="search",
+         status="working", title="Verify the search index rebuild",
+         age_s=10800, messages=64, cost_usd=4.10, activity="re-running the rebuild against the snapshot",
+         preview="First pass matched the old index row for row; the second is still running."),
+    dict(id="20260919_084000_y7z8a9", host="local", profile="default", project="testing",
+         status="reply", title="Trim the unused fixtures from the test suite",
+         age_s=14400, messages=9, cost_usd=0.22, activity="",
+         preview="Eleven fixtures are referenced by nothing. I left the two that look like they are "
+                 "waiting for a feature."),
+    dict(id="20260919_082115_b1c2d3", host="local", profile="default", project="billing-service",
+         status="needs", title="Summarise yesterday's incident thread",
+         age_s=21600, messages=38, cost_usd=1.44, activity="reading the thread",
+         preview="The short version: a retry storm after a partial deploy, cleared by rolling back the "
+                 "worker. Two follow-ups are still open."),
+    dict(id="20260919_080000_e4f5g6", host="local", profile="default", project="docs-site",
+         status="waiting", title="Collect the open questions from the design doc",
+         age_s=28800, messages=15, cost_usd=0.48, activity="waiting on another agent",
+         preview="Six questions, two of which the doc already answers further down."),
+    dict(id="20260918_190000_h7i8j9", host="local", profile="default", project="cli",
+         status="finished", title="Add shell completion to the installer",
+         age_s=172800, messages=22, cost_usd=0.76, activity="",
+         preview="Done and merged. Completion covers the three subcommands people actually type."),
+]
 
-    return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>HermesAI panel, as the addon draws it</title>
-<style>
+
+def demo_board() -> dict:
+    """The made-up roster in the shape `render` expects.
+
+    `generated_at` is set relative to now rather than fixed, so the synced stamp
+    reads the same on every run instead of ageing with the calendar.
+    """
+    return {
+        "generated_at": time.time() - 120,
+        "sessions": [dict(session, status_label=STATUS_LABELS[session["status"]])
+                     for session in DEMO_SESSIONS],
+        "hosts": {"local": "ok", "terra": "ok"},
+        "hosts_offline": [],
+        "new_count": 0,
+    }
+
+
+def style_block() -> str:
+    return f"""<style>
   :root {{ --edge: {PANEL_EDGE}; --text: {TEXT}; --muted: {MUTED}; --dim: {DIM}; --gold: {GOLD}; }}
   body {{ margin: 0; padding: 16px; background: #05070d; color: var(--text);
           font: 13px/1.3 system-ui, "Segoe UI", sans-serif; }}
@@ -368,13 +468,44 @@ def render(data: dict, *, now: float) -> str:
   .note h3 {{ color: var(--text); font-size: 12.5px; margin: 0 0 6px; }}
   .note li {{ margin-bottom: 5px; }}
   code {{ color: var(--text); }}
+</style>"""
+
+
+def render_bare(data: dict, *, mode: str = "board") -> str:
+    """One panel and nothing else, at 1:1 on a transparent page.
+
+    For rasterising: no body padding, no note column, no page background, so a
+    headless screenshot of it is the panel itself with its own glow and no context
+    to crop off. See `make_banner.py`.
+    """
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8">{style_block()}
+<style>
+  /* 30px of slack on every side so the panel's own box-shadow is inside the shot. */
+  body {{ margin: 0; padding: 30px; background: transparent; }}
+  .panel {{ box-shadow: 0 0 26px rgba(47,107,216,.45); }}
 </style></head>
+<body>
+{render_panel(data, mode=mode)}
+</body></html>
+"""
+
+
+def render(data: dict, *, now: float, source: str = "your live roster") -> str:
+    sessions = data.get("sessions", [])
+    generated = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+    attention = data.get("attention", 0)
+
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>HermesAI panel, as the addon draws it</title>
+{style_block()}
+</head>
 <body>
   <div class="wrap">
 {render_panel(data, mode="board")}
 {render_panel(data, mode="detail")}
     <div class="note">
-      <h3>Rendered from your live roster</h3>
+      <h3>Rendered from {source}</h3>
       <ul>
         <li>{len(sessions)} sessions, {attention} needing you, generated {generated}.</li>
         <li>Left: the board. Right: the detail pane that opens when you click a row (composer focused, ready to type).</li>
@@ -389,20 +520,40 @@ def render(data: dict, *, now: float) -> str:
 
 
 def main() -> int:
-    output = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "panel-preview.html"
-    data = roster.board(limit=15, days=3)
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("output", nargs="?",
+                        default=str(ROOT / "docs" / "panel-preview.html"),
+                        help="where to write the html")
+    parser.add_argument("--demo", action="store_true",
+                        help="the built-in made-up roster, for pictures that should not "
+                             "contain anyone's real work")
+    parser.add_argument("--only", choices=("board", "detail"),
+                        help="one bare panel on a transparent page, for rasterising")
+    args = parser.parse_args()
 
-    # Present the panel the way the player will most often see it: something
-    # wanting a decision, plus whatever is running.
-    data["new_count"] = 0
-    data["hosts_offline"] = []
+    output = Path(args.output)
+    source = "a made-up roster"
+
+    if args.demo:
+        data = demo_board()
+    else:
+        data = roster.board(limit=15, days=3)
+        # Present the panel the way the player will most often see it: something
+        # wanting a decision, plus whatever is running.
+        data["new_count"] = 0
+        data["hosts_offline"] = []
+        source = "your live roster"
+
+    page = render_bare(data, mode=args.only) if args.only else render(data, now=time.time(), source=source)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render(data, now=time.time()), encoding="utf-8")
+    output.write_text(page, encoding="utf-8")
     print(json.dumps({
         "path": str(output),
         "sessions": len(data.get("sessions", [])),
         "attention": data.get("attention", 0),
+        "source": source,
+        "only": args.only,
     }))
     return 0
 

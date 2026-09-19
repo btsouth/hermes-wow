@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
-"""Turn generated art into what this project ships.
+"""Turn generated emblem art into the addon icon.
 
-Two jobs, because they are the same job at different sizes:
+An addon icon: a 512px-or-larger master down to `icon.tga` (64x64, the size the
+client's addon list draws) plus `icon-128.png` for store pages, and the
+`## IconTexture` line in the toc that points the client at it.
 
-* an addon icon: a 512px-or-larger master down to `icon.tga` (64x64, the size the
-  client's addon list draws) plus `icon-128.png` for store pages, and the
-  `## IconTexture` line in the toc that points the client at it
-* a banner: a textless background with the wordmark composited in a real font,
-  because image models garble lettering and a misspelled banner is worse than no
-  banner
+Resizing is done here rather than asked of the model: they produce mush at 64px and
+good pixels resize down cleanly. The banner is a separate job with a separate
+script (`make_banner.py`), because it composes the product rather than an emblem.
 
-Resizing is done here rather than asked of the model: they produce mush at 64px
-and good pixels resize down cleanly.
-
-Run:
-    python3 scripts/make_icon.py ~/Downloads/emblem.png
-    python3 scripts/make_icon.py --banner ~/Downloads/banner.png --text HermesAI
+Run: python3 scripts/make_icon.py ~/Downloads/emblem.png
 """
 
 from __future__ import annotations
@@ -27,7 +21,7 @@ import sys
 from pathlib import Path
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageFont
 except ImportError:  # pragma: no cover - the message is the feature
     print("Pillow is needed: pip install pillow", file=sys.stderr)
     raise SystemExit(1)
@@ -39,21 +33,17 @@ DEFAULT_ADDON = ROOT / "addon" / ADDON_NAME
 ICON_SIZE = 64
 ICON_LARGE = 128
 
-# The wordmark is drawn in a real font, not generated. A hardcoded list of paths
-# is how this first went wrong: none of the likely ones existed on this machine,
-# Pillow fell back to its ~11px bitmap font, and the banner shipped with an
-# unreadable smear where the name should be. So ask the system what it uses, then
-# look, and say so loudly if neither works.
+# Font resolution for anything that draws text (the banner does). A hardcoded list
+# of paths is how this first went wrong: none of the likely ones existed on this
+# machine, Pillow fell back to its ~11px bitmap font, and the banner came out with
+# an unreadable smear where the name should be. So ask the system what it uses,
+# then look, and say so loudly if neither works.
 FONT_PATTERNS = (
     "/usr/share/fonts/**/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/**/LiberationSans-Bold.ttf",
     "/usr/share/fonts/**/NotoSans-Bold.ttf",
     "/usr/share/fonts/**/*Bold*.ttf",
 )
-
-TEXT_COLOR = (232, 237, 247)  # TEXT from the UI palette
-SHADOW_COLOR = (13, 18, 32)  # the panel's navy, for the wordmark's shadow
-
 
 def find_font(explicit: str | None = None) -> Path | None:
     """A bold sans to draw the wordmark in, or None if this machine has none."""
@@ -152,55 +142,18 @@ def wire_toc(addon_dir: Path) -> bool:
     return True
 
 
-def write_banner(master: Path, out: Path, text: str, font_path: str | None = None) -> Path:
-    """Composite the wordmark. Real letters, real font, no model lettering."""
-    image = Image.open(master).convert("RGBA")
-    draw = ImageDraw.Draw(image)
-
-    # Sized to the image rather than fixed, so the same call works for a 1280x640
-    # social card and anything else roughly banner-shaped.
-    size = max(24, int(image.height * 0.14))
-    font = load_font(size, font_path)
-
-    # Bottom-left, under the emblem. The left third is where the art is and the
-    # right two thirds hold the row bars, so this is the clear space in either
-    # master. Measured rather than guessed: the first attempt placed it at a fixed
-    # 66% of the height and ran it straight through the plate.
-    box = draw.textbbox((0, 0), text, font=font)
-    text_height = box[3] - box[1]
-    left = int(image.width * 0.06)
-    top = image.height - int(image.height * 0.06) - text_height - box[1]
-
-    offset = max(1, size // 40)
-    draw.text((left + offset, top + offset), text, font=font, fill=SHADOW_COLOR)
-    draw.text((left, top), text, font=font, fill=TEXT_COLOR)
-
-    out.parent.mkdir(parents=True, exist_ok=True)
-    image.convert("RGB").save(out, format="PNG")
-    return out
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("master", help="the generated PNG (512px or larger)")
     parser.add_argument("--addon", default=str(DEFAULT_ADDON), help="the addon folder to write into")
-    parser.add_argument("--banner", action="store_true", help="compose a banner instead of an icon")
-    parser.add_argument("--text", default="HermesAI", help="the wordmark for --banner")
-    parser.add_argument("--out", default=str(ROOT / "dist" / "banner.png"), help="--banner output path")
     parser.add_argument("--no-crop", action="store_true",
                         help="keep the master's own framing instead of trimming to the art")
-    parser.add_argument("--font", default=None, help="a TrueType file for the --banner wordmark")
     args = parser.parse_args()
 
     master = Path(args.master).expanduser()
     if not master.is_file():
         print(f"no such image: {master}", file=sys.stderr)
         return 1
-
-    if args.banner:
-        written = write_banner(master, Path(args.out), args.text, args.font)
-        print(f"banner with the wordmark {args.text!r} -> {written}")
-        return 0
 
     addon_dir = Path(args.addon)
     if not addon_dir.is_dir():

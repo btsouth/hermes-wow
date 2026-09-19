@@ -33,6 +33,7 @@ check-python: ## Roster, wire format, hostile input, hosts, lint, package, notif
 	$(PY) tests/hosts_test.py
 	$(PY) tests/addon_checks.py
 	$(PY) tests/package_test.py
+	$(PY) tests/preview_test.py
 	$(PY) tests/notify_test.py
 
 lint: ## Compile every Lua file without running anything
@@ -53,9 +54,8 @@ icon: ## Turn generated art into the addon icon (make icon MASTER=~/Downloads/em
 	@test -n "$(MASTER)" || { echo "usage: make icon MASTER=path/to/emblem.png  (512px or larger, transparent)"; exit 1; }
 	$(PY) scripts/make_icon.py "$(MASTER)"
 
-banner: ## Composite the wordmark onto a generated banner (make banner MASTER=...)
-	@test -n "$(MASTER)" || { echo "usage: make banner MASTER=path/to/banner.png"; exit 1; }
-	$(PY) scripts/make_icon.py --banner "$(MASTER)"
+banner: ## Compose the store-page banner: emblem + a rendered panel + wordmark
+	$(PY) scripts/make_banner.py
 
 interface: ## Move the interface pin to a new client build (make interface IFACE=16002)
 	@test -n "$(IFACE)" || { echo "usage: make interface IFACE=16002  (from /run print(GetBuildInfo()) in game)"; exit 1; }
