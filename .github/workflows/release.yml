@@ -5,7 +5,7 @@ name: release
 # version the changelog has not recorded, so a tag that does not match the code
 # cannot produce an artifact.
 #
-#   git tag v0.6.0 && git push origin v0.6.0
+#   git tag v0.7.0 && git push origin v0.7.0
 
 on:
   push:

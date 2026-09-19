@@ -36,8 +36,13 @@ check-python: ## Roster, wire format, hostile input, hosts, lint, package, notif
 	$(PY) tests/package_test.py
 	$(PY) tests/preview_test.py
 	$(PY) tests/notify_test.py
+	$(PY) tests/bootstrap_test.py
+	$(PY) tests/setup_test.py -v
+	$(PY) tests/update_test.py -v
+	$(PY) tests/service_test.py
 
-lint: ## Compile every Lua file without running anything
+lint: ## Compile Lua and validate the bootstrap shell
+	bash -n install.sh bin/hermes-wow
 	@for file in addon/HermesAI/*.lua; do $(LUAC) -p $$file || exit 1; done
 	@echo "all Lua files compile"
 
