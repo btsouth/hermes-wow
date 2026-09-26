@@ -1,5 +1,10 @@
 # HermesWoW
 
+> **This project continues as [Agent Board](https://github.com/btsouth/agent-board)**,
+> which adds T3 Code alongside Hermes and a live overlay that updates without a UI
+> reload. New installs should use Agent Board. This repository stays up for the
+> 0.7.0 preview and its history.
+
 Hermes agents in Azeroth: a native in-game board for what needs you, plus the
 out-of-game half that feeds it.
 
