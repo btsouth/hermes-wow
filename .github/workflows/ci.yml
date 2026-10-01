@@ -1,5 +1,8 @@
 name: gates
 
+permissions:
+  contents: read
+
 # Everything here runs without a game client and without network access, which is
 # the point: the two things that break this project in practice are a Lua API the
 # client rejects and a payload format the two halves disagree about, and both are
